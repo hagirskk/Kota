@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kota Craft - Minecraft風ボクセルゲーム</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="crosshair">+</div>
+
+  <div id="hud">
+    <div id="hotbar"></div>
+    <div id="coords"></div>
+  </div>
+
+  <div id="overlay">
+    <div class="panel">
+      <h1>Kota Craft</h1>
+      <p class="subtitle">Minecraft風ボクセルゲーム</p>
+      <h2>操作</h2>
+      <ul>
+        <li><b>W / A / S / D</b> : 移動</li>
+        <li><b>Space</b> : ジャンプ</li>
+        <li><b>Shift</b> : ダッシュ</li>
+        <li><b>マウス</b> : 視点操作</li>
+        <li><b>左クリック</b> : ブロック破壊</li>
+        <li><b>右クリック</b> : ブロック設置</li>
+        <li><b>1〜6 / ホイール</b> : ブロック選択</li>
+        <li><b>F</b> : 飛行モード切替</li>
+        <li><b>Esc</b> : ポインター解除</li>
+      </ul>
+      <button id="startBtn">クリックしてスタート</button>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

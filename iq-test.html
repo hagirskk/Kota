@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>チャレンジ！ あたまの たいそう（小学4年生むけ IQテスト）</title>
+<style>
+  :root {
+    --bg1: #fef6e4;
+    --bg2: #e0f7ff;
+    --ink: #33415c;
+    --accent: #ff8c42;
+    --accent2: #4cc9f0;
+    --good: #2ec4b6;
+    --card: #ffffff;
+    --shadow: 0 10px 30px rgba(51, 65, 92, 0.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Hiragino Maru Gothic ProN", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+    color: var(--ink);
+    background: linear-gradient(160deg, var(--bg1), var(--bg2));
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 24px 16px 60px;
+    line-height: 1.7;
+  }
+  #app {
+    width: 100%;
+    max-width: 640px;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 24px;
+    box-shadow: var(--shadow);
+    padding: 28px 24px;
+  }
+  h1 {
+    font-size: 1.6rem;
+    margin: 0 0 8px;
+    text-align: center;
+  }
+  h2 { font-size: 1.25rem; margin: 0 0 14px; }
+  .subtitle { text-align: center; color: #7b8794; margin: 0 0 20px; }
+  .emoji-row { font-size: 2.4rem; text-align: center; margin: 6px 0 18px; }
+  .lead { font-size: 1.05rem; }
+  ul.rules { padding-left: 1.2em; }
+  ul.rules li { margin-bottom: 6px; }
+
+  button {
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    border-radius: 16px;
+    transition: transform .08s ease, box-shadow .12s ease, background .15s ease;
+  }
+  button:active { transform: scale(.97); }
+  .btn-primary {
+    display: block;
+    width: 100%;
+    margin-top: 20px;
+    padding: 16px;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent), #ff5d73);
+    box-shadow: 0 6px 16px rgba(255, 93, 115, 0.35);
+  }
+  .btn-secondary {
+    display: block;
+    width: 100%;
+    margin-top: 14px;
+    padding: 14px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--ink);
+    background: #eef2f7;
+  }
+
+  /* progress */
+  .progress-wrap { margin-bottom: 18px; }
+  .progress-text { font-size: .95rem; color: #7b8794; margin-bottom: 6px; }
+  .progress-bar { height: 12px; border-radius: 999px; background: #e6ebf1; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent2), var(--good)); transition: width .3s ease; }
+
+  .q-cat { display: inline-block; font-size: .85rem; font-weight: 700; color: #fff; background: var(--accent2); padding: 3px 12px; border-radius: 999px; margin-bottom: 12px; }
+  .q-text { font-size: 1.3rem; font-weight: 700; margin: 6px 0 16px; }
+  .q-figure { text-align: center; margin: 4px 0 18px; }
+  .q-figure svg { max-width: 100%; height: auto; }
+
+  .options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .options.single { grid-template-columns: 1fr; }
+  .option {
+    padding: 16px;
+    font-size: 1.15rem;
+    font-weight: 700;
+    background: #f4f7fb;
+    border: 3px solid transparent;
+    color: var(--ink);
+    text-align: center;
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .option:hover { border-color: var(--accent2); }
+  .option svg { max-width: 100%; height: auto; }
+
+  /* passkey */
+  .lock-emoji { font-size: 3rem; text-align: center; margin-bottom: 8px; }
+  #passkeyInput {
+    width: 100%;
+    margin-top: 16px;
+    padding: 16px;
+    font-size: 1.6rem;
+    text-align: center;
+    letter-spacing: .5em;
+    border: 3px solid #d5dde6;
+    border-radius: 16px;
+    font-family: inherit;
+  }
+  #passkeyInput:focus { outline: none; border-color: var(--accent2); }
+  .passkey-error { color: #ff5d73; font-weight: 700; text-align: center; margin-top: 12px; min-height: 1.4em; }
+  .shake { animation: shake .4s; }
+  @keyframes shake {
+    0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-6px)} 80%{transform:translateX(6px)}
+  }
+
+  /* results */
+  .score-big { text-align: center; font-size: 3rem; font-weight: 800; color: var(--accent); margin: 6px 0 0; }
+  .score-sub { text-align: center; color: #7b8794; margin: 0 0 20px; }
+  .cat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .cat-name { flex: 0 0 42%; font-weight: 700; font-size: 1rem; }
+  .cat-bar { flex: 1; height: 16px; background: #e6ebf1; border-radius: 999px; overflow: hidden; }
+  .cat-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent2), var(--good)); }
+  .cat-stars { flex: 0 0 auto; font-size: 1rem; }
+  .talk {
+    background: #fff8ef;
+    border-left: 6px solid var(--accent);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-top: 18px;
+    font-size: 1.05rem;
+  }
+  .talk strong { color: var(--accent); }
+  .talk.blue { background: #eef8ff; border-left-color: var(--accent2); }
+  .talk.blue strong { color: #2596c9; }
+  .talk.green { background: #eafaf6; border-left-color: var(--good); }
+  .talk.green strong { color: #1f9c90; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var PASSKEY = "3820";
+
+  // ---- SVG ヘルパー ----------------------------------------------------
+  function arrow(deg) {
+    // 上向きの矢印を deg 度だけ右回りに回した SVG
+    return '<svg width="70" height="70" viewBox="0 0 70 70">' +
+      '<g transform="rotate(' + deg + ' 35 35)">' +
+      '<line x1="35" y1="55" x2="35" y2="18" stroke="#33415c" stroke-width="7" stroke-linecap="round"/>' +
+      '<polygon points="35,8 22,26 48,26" fill="#ff8c42"/>' +
+      '</g></svg>';
+  }
+  function boxWithDot(corner) {
+    // corner: "tl","tr","bl","br"  正方形の角に丸をつけた図
+    var pos = { tl: [22, 22], tr: [58, 22], bl: [22, 58], br: [58, 58] }[corner];
+    return '<svg width="80" height="80" viewBox="0 0 80 80">' +
+      '<rect x="14" y="14" width="52" height="52" rx="6" fill="#eaf3fb" stroke="#4cc9f0" stroke-width="5"/>' +
+      '<circle cx="' + pos[0] + '" cy="' + pos[1] + '" r="8" fill="#ff5d73"/>' +
+      '</svg>';
+  }
+  function shape(kind) {
+    // kind: "circle","triangle","square","star"
+    var s = '<svg width="64" height="64" viewBox="0 0 64 64">';
+    if (kind === "circle") s += '<circle cx="32" cy="32" r="22" fill="#4cc9f0"/>';
+    if (kind === "triangle") s += '<polygon points="32,8 56,54 8,54" fill="#2ec4b6"/>';
+    if (kind === "square") s += '<rect x="12" y="12" width="40" height="40" rx="4" fill="#ff8c42"/>';
+    if (kind === "star") s += '<polygon points="32,6 39,25 59,25 43,38 49,58 32,46 15,58 21,38 5,25 25,25" fill="#ffd166"/>';
+    return s + '</svg>';
+  }
+  function seqRow(kinds) {
+    // 図形をよこに ならべた列（さいごに「？」）
+    var out = '<div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;">';
+    kinds.forEach(function (k) {
+      out += '<div style="width:56px;">' + (k === "?" ? '<div style="font-size:2rem;font-weight:800;color:#7b8794;">？</div>' : shape(k)) + '</div>';
+    });
+    return out + '</div>';
+  }
+
+  // ---- 問題データ（4分野 × 2問 = 8問）-------------------------------------
+  // cat: kotoba(ことば) / suuji(すうじ) / zukei(ずけい) / ronri(ろんり)
+  var QUESTIONS = [
+    {
+      cat: "kotoba",
+      catLabel: "ことば",
+      text: "「おおい」の はんたいの ことばは どれ？",
+      options: ["すくない", "おおきい", "ながい", "つよい"],
+      answer: 0
+    },
+    {
+      cat: "kotoba",
+      catLabel: "ことば",
+      text: "つぎの なかで、なかまはずれは どれ？",
+      options: ["いぬ", "ねこ", "うさぎ", "さくら"],
+      answer: 3
+    },
+    {
+      cat: "suuji",
+      catLabel: "すうじ",
+      text: "けいさんの こたえは？　　3 ＋ 4 × 2",
+      options: ["11", "14", "10", "9"],
+      answer: 0
+    },
+    {
+      cat: "suuji",
+      catLabel: "すうじ",
+      text: "きまりに したがうと、□に 入る かずは？　　1, 3, 6, 10, □",
+      options: ["15", "13", "14", "12"],
+      answer: 0
+    },
+    {
+      cat: "zukei",
+      catLabel: "ずけい",
+      text: "やじるしが 右まわりに 90ど ずつ 回っています。つぎは どれ？",
+      figure: seqRow2([arrow(0), arrow(90), arrow(180), "?"]),
+      options: [arrow(270), arrow(0), arrow(90), arrow(180)],
+      optionIsSVG: true,
+      answer: 0
+    },
+    {
+      cat: "zukei",
+      catLabel: "ずけい",
+      text: "左の かたちを かがみに うつすと、どう 見える？",
+      figure: '<div style="display:inline-block">' + boxWithDot("tr") + '</div>',
+      options: [boxWithDot("tl"), boxWithDot("tr"), boxWithDot("br"), boxWithDot("bl")],
+      optionIsSVG: true,
+      answer: 0
+    },
+    {
+      cat: "ronri",
+      catLabel: "ろんり",
+      text: "「この はこの ボールは ぜんぶ まるい」。はこから 1つ とりだすと、それは どんな かたち？",
+      options: ["まるい", "しかくい", "さんかく", "ほそながい"],
+      answer: 0
+    },
+    {
+      cat: "ronri",
+      catLabel: "ろんり",
+      text: "きまりを 見つけよう。□に 入る かたちは どれ？",
+      figure: seqRow(["circle", "triangle", "square", "circle", "triangle", "?"]),
+      options: [shape("square"), shape("circle"), shape("triangle"), shape("star")],
+      optionIsSVG: true,
+      answer: 0
+    }
+  ];
+
+  // seqRow で SVG文字列を そのまま ならべる版
+  function seqRow2(svgs) {
+    var out = '<div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;">';
+    svgs.forEach(function (s) {
+      out += '<div style="width:60px;">' + (s === "?" ? '<div style="font-size:2rem;font-weight:800;color:#7b8794;">？</div>' : s) + '</div>';
+    });
+    return out + '</div>';
+  }
+
+  var CATS = {
+    kotoba: {
+      name: "ことばの ちから",
+      about: "ことばの いみを かんがえたり、なかまを 見つける ちから",
+      strong: "あたらしい ほんを よんだり、しりとりや なぞなぞで もっと ことばを ふやせるよ。",
+      weak: "きょうから 1日1つ、しらない ことばを おぼえてみよう。すぐに ふえていくよ。"
+    },
+    suuji: {
+      name: "すうじの ちから",
+      about: "けいさんを したり、かずの きまりを 見つける ちから",
+      strong: "むずかしい けいさんパズルや、大きな かずの もんだいに ちょうせんしてみよう。",
+      weak: "まいにち 5もんだけ けいさんを つづけると、どんどん はやく なるよ。"
+    },
+    zukei: {
+      name: "ずけいの ちから",
+      about: "かたちを あたまの なかで 回したり うごかす ちから",
+      strong: "ブロックあそびや おりがみ、めいろ づくりで もっと のばせるよ。",
+      weak: "つみきや おりがみで あそぶと、かたちが だんだん 見えるように なるよ。"
+    },
+    ronri: {
+      name: "かんがえる ちから",
+      about: "すじみちを たてて、こたえを みちびく ちから",
+      strong: "「なぜ そうなるの？」を じぶんに きく くせを つけると もっと つよくなるよ。",
+      weak: "なぞなぞや クイズで あそぶと、じゅんばんに かんがえる れんしゅうに なるよ。"
+    }
+  };
+  var CAT_ORDER = ["kotoba", "suuji", "zukei", "ronri"];
+
+  // ---- じょうたい ------------------------------------------------------
+  var state = { screen: "start", index: 0, answers: [] };
+  var app = document.getElementById("app");
+
+  function render() {
+    if (state.screen === "start") return renderStart();
+    if (state.screen === "quiz") return renderQuiz();
+    if (state.screen === "passkey") return renderPasskey();
+    if (state.screen === "result") return renderResult();
+  }
+
+  function renderStart() {
+    app.innerHTML =
+      '<div class="card">' +
+        '<h1>チャレンジ！ あたまの たいそう</h1>' +
+        '<p class="subtitle">小学4年生むけ　IQ（あたまの つかいかた）テスト</p>' +
+        '<div class="emoji-row">🧠✨🎯</div>' +
+        '<p class="lead">ぜんぶで <b>8もん</b> だけ。みじかい じかんで、きみの <b>とくいなこと</b> と <b>にがてなこと</b> が わかるよ。</p>' +
+        '<ul class="rules">' +
+          '<li>正解が わからなくても、だいじょうぶ。あてずっぽうでも いいよ。</li>' +
+          '<li>まちがえても へらない。ちょうせんする ことが いちばん たいせつ！</li>' +
+          '<li>けっかを 見るには <b>パスキー</b> が ひつようだよ。</li>' +
+        '</ul>' +
+        '<button class="btn-primary" id="startBtn">スタート！</button>' +
+      '</div>';
+    document.getElementById("startBtn").onclick = function () {
+      state.screen = "quiz"; state.index = 0; state.answers = []; render();
+    };
+  }
+
+  function renderQuiz() {
+    var q = QUESTIONS[state.index];
+    var total = QUESTIONS.length;
+    var pct = Math.round((state.index) / total * 100);
+    var opts = "";
+    q.options.forEach(function (opt, i) {
+      var content = q.optionIsSVG ? opt : opt;
+      opts += '<button class="option" data-i="' + i + '">' + content + '</button>';
+    });
+    app.innerHTML =
+      '<div class="card">' +
+        '<div class="progress-wrap">' +
+          '<div class="progress-text">もんだい ' + (state.index + 1) + ' / ' + total + '</div>' +
+          '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
+        '</div>' +
+        '<span class="q-cat">' + q.catLabel + '</span>' +
+        '<div class="q-text">' + q.text + '</div>' +
+        (q.figure ? '<div class="q-figure">' + q.figure + '</div>' : '') +
+        '<div class="options' + (q.optionIsSVG ? '' : '') + '">' + opts + '</div>' +
+      '</div>';
+    Array.prototype.forEach.call(document.querySelectorAll(".option"), function (b) {
+      b.onclick = function () {
+        state.answers[state.index] = parseInt(b.getAttribute("data-i"), 10);
+        if (state.index + 1 < total) { state.index++; render(); }
+        else { state.screen = "passkey"; render(); }
+      };
+    });
+  }
+
+  function renderPasskey() {
+    app.innerHTML =
+      '<div class="card">' +
+        '<div class="lock-emoji">🔒</div>' +
+        '<h2 style="text-align:center;">おつかれさま！ ぜんぶ こたえたね</h2>' +
+        '<p class="subtitle">けっかを 見るには <b>パスキー</b>（4けたの すうじ）を いれてね。</p>' +
+        '<input id="passkeyInput" type="password" inputmode="numeric" maxlength="4" placeholder="＿＿＿＿" autocomplete="off" />' +
+        '<div class="passkey-error" id="pkError"></div>' +
+        '<button class="btn-primary" id="pkBtn">けっかを みる</button>' +
+      '</div>';
+    var input = document.getElementById("passkeyInput");
+    var err = document.getElementById("pkError");
+    input.focus();
+    function tryOpen() {
+      if (input.value === PASSKEY) {
+        state.screen = "result"; render();
+      } else {
+        err.textContent = "パスキーが ちがうよ。もういちど いれてね。";
+        input.classList.remove("shake");
+        void input.offsetWidth; // reflow して アニメを やりなおす
+        input.classList.add("shake");
+        input.value = "";
+        input.focus();
+      }
+    }
+    document.getElementById("pkBtn").onclick = tryOpen;
+    input.addEventListener("keydown", function (e) { if (e.key === "Enter") tryOpen(); });
+  }
+
+  function computeScores() {
+    var scores = { kotoba: 0, suuji: 0, zukei: 0, ronri: 0 };
+    var total = 0;
+    QUESTIONS.forEach(function (q, i) {
+      if (state.answers[i] === q.answer) { scores[q.cat]++; total++; }
+    });
+    return { scores: scores, total: total };
+  }
+
+  function renderResult() {
+    var r = computeScores();
+    var scores = r.scores;
+    var totalMax = QUESTIONS.length;
+
+    // とくい / にがて を きめる
+    var max = -1, min = 99;
+    CAT_ORDER.forEach(function (c) {
+      if (scores[c] > max) max = scores[c];
+      if (scores[c] < min) min = scores[c];
+    });
+    var bestList = CAT_ORDER.filter(function (c) { return scores[c] === max; });
+    var worstList = CAT_ORDER.filter(function (c) { return scores[c] === min; });
+    var best = bestList[0];
+    var worst = worstList[0];
+
+    // カテゴリ バー
+    var catRows = "";
+    CAT_ORDER.forEach(function (c) {
+      var s = scores[c];
+      var stars = "★★".slice(0, s) + "☆☆".slice(0, 2 - s);
+      catRows +=
+        '<div class="cat-row">' +
+          '<div class="cat-name">' + CATS[c].name + '</div>' +
+          '<div class="cat-bar"><div class="cat-fill" style="width:' + (s / 2 * 100) + '%"></div></div>' +
+          '<div class="cat-stars">' + stars + '</div>' +
+        '</div>';
+    });
+
+    // メッセージ本文
+    var strengthMsg, weaknessMsg;
+    var allSame = (max === min);
+    if (allSame) {
+      strengthMsg =
+        '<div class="talk blue">' +
+          '<p>あなたの すごい ところは、<strong>どの ちからも バランスよく つかえる</strong> ことです！' +
+          'ことば・すうじ・ずけい・かんがえる ちから、ぜんぶを うまく つかえるのは とても たいせつな ちからだよ。</p>' +
+        '</div>';
+      weaknessMsg =
+        '<div class="talk">' +
+          '<p>もっと のばしたい ときは、じぶんが 「もっと やってみたい！」と おもう ことを えらんで ちょうせんしてみよう。' +
+          'すきな ことから ふかめると、どんどん つよく なれるよ。</p>' +
+        '</div>';
+    } else {
+      strengthMsg =
+        '<div class="talk blue">' +
+          '<p>あなたの <strong>とくいな こと</strong> は 「<strong>' + CATS[best].name + '</strong>」です。' +
+          '（' + CATS[best].about + '）</p>' +
+          '<p>これは あなたの すてきな みりょくだよ。じしんを もって いいんだ！ ' + CATS[best].strong + '</p>' +
+        '</div>';
+      weaknessMsg =
+        '<div class="talk">' +
+          '<p>いっぽうで、いまは すこし <strong>にがてかも しれない こと</strong> は 「<strong>' + CATS[worst].name + '</strong>」です。' +
+          '（' + CATS[worst].about + '）</p>' +
+          '<p>でも、だいじょうぶ。にがては 「これから のびる ところ」という サインだよ。' +
+          'できないんじゃなくて、まだ れんしゅうの とちゅう。' + CATS[worst].weak + '</p>' +
+        '</div>';
+    }
+
+    app.innerHTML =
+      '<div class="card">' +
+        '<h1>けっか はっぴょう 🎉</h1>' +
+        '<div class="score-big">' + r.total + ' / ' + totalMax + '</div>' +
+        '<p class="score-sub">正解の かず（このスコアは たのしむための めやすだよ）</p>' +
+        catRows +
+        strengthMsg +
+        weaknessMsg +
+        '<div class="talk green">' +
+          '<p><strong>いちばん だいじな おはなし</strong></p>' +
+          '<p>あなたは そのままで じゅうぶん すごいし、たくさんの ちからを もっているよ。' +
+          'できた ことも、できなかった ことも、ぜんぶ ちょうせんした しょうこ。それが かっこいいんだ。</p>' +
+          '<p>そして わすれないでね ——<strong> どんなに とくいな ことでも、まいにち すこしずつ どりょくを つづけることが たいせつ</strong> だよ。' +
+          'とくいな ことは もっと のびるし、にがてな ことも、つづければ きっと できるように なる。' +
+          'きょうの きみより、あしたの きみは もっと すごくなれる。おうえん しているよ！ 💪✨</p>' +
+        '</div>' +
+        '<button class="btn-secondary" id="againBtn">もう いちど ちょうせんする</button>' +
+      '</div>';
+    document.getElementById("againBtn").onclick = function () {
+      state.screen = "start"; state.index = 0; state.answers = []; render();
+    };
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

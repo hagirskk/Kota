@@ -27,14 +27,17 @@ const PLACEABLE = [BLOCKS.DIRT, BLOCKS.GRASS, BLOCKS.STONE, BLOCKS.WOOD, BLOCKS.
 // ---------------------------------------------------------------------------
 // ツール定義
 // ---------------------------------------------------------------------------
+const TIER_COLOR = { wood: 0x8b5a2b, stone: 0x8a8a8a, iron: 0xdcdcdc };
 const TOOLS = {
-  HAND: { id: 0, name: '素手', speed: 1.0 },
-  WOODEN_PICKAXE: { id: 1, name: '木のツルハシ', speed: 1.2 },
-  STONE_PICKAXE: { id: 2, name: '石のツルハシ', speed: 1.8 },
-  IRON_PICKAXE: { id: 3, name: '鉄のツルハシ', speed: 2.5 },
+  HAND:           { id: 0, name: '素手',       kind: 'hand',    tier: null,    speed: 1.0, damage: 2 },
+  WOODEN_PICKAXE: { id: 1, name: '木のツルハシ', kind: 'pickaxe', tier: 'wood',  speed: 1.5, damage: 3 },
+  STONE_PICKAXE:  { id: 2, name: '石のツルハシ', kind: 'pickaxe', tier: 'stone', speed: 2.2, damage: 4 },
+  IRON_PICKAXE:   { id: 3, name: '鉄のツルハシ', kind: 'pickaxe', tier: 'iron',  speed: 3.0, damage: 5 },
+  WOODEN_SWORD:   { id: 4, name: '木の剣',     kind: 'sword',   tier: 'wood',  speed: 1.0, damage: 5 },
+  STONE_SWORD:    { id: 5, name: '石の剣',     kind: 'sword',   tier: 'stone', speed: 1.0, damage: 6 },
+  IRON_SWORD:     { id: 6, name: '鉄の剣',     kind: 'sword',   tier: 'iron',  speed: 1.0, damage: 8 },
 };
-
-const TOOL_NAMES = Object.values(TOOLS).map(t => t.name);
+const TOOL_LIST = Object.values(TOOLS);
 
 // ---------------------------------------------------------------------------
 // ワールド設定
@@ -546,6 +549,61 @@ function rebuildMesh() {
 }
 rebuildMesh();
 
+// ---------------------------------------------------------------------------
+// 手に持っている道具 (一人称表示)
+// ---------------------------------------------------------------------------
+scene.add(camera);
+const handGroup = new THREE.Group();
+handGroup.position.set(0.55, -0.5, -0.9);
+camera.add(handGroup);
+let heldMesh = null;
+let heldToolId = -1;
+let swingT = 1;
+
+function buildHeldItem(tool) {
+  const g = new THREE.Group();
+  const box = (w, h, d, color, x, y, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
+    m.position.set(x, y, z);
+    g.add(m);
+    return m;
+  };
+  const tier = TIER_COLOR[tool.tier];
+  if (tool.kind === 'hand') {
+    box(0.2, 0.2, 0.45, 0xd9a77a, 0, 0, 0);
+    g.rotation.set(0.3, -0.4, 0.2);
+  } else if (tool.kind === 'pickaxe') {
+    box(0.07, 0.75, 0.07, 0x8b5a2b, 0, 0, 0);
+    box(0.55, 0.1, 0.1, tier, 0, 0.36, 0);
+    box(0.12, 0.16, 0.12, tier, -0.24, 0.3, 0);
+    box(0.12, 0.16, 0.12, tier, 0.24, 0.3, 0);
+    g.rotation.set(0.5, -0.9, 0.4);
+  } else {
+    box(0.08, 0.7, 0.025, tier, 0, 0.28, 0);
+    box(0.06, 0.16, 0.06, tier, 0, 0.66, 0);
+    box(0.26, 0.06, 0.06, 0x8b5a2b, 0, -0.08, 0);
+    box(0.06, 0.24, 0.06, 0x5a3a1a, 0, -0.23, 0);
+    g.rotation.set(0.6, -0.7, 0.5);
+  }
+  return g;
+}
+
+function updateHeldItem(dt = 0, mining = false) {
+  if (heldToolId !== player.selectedTool) {
+    if (heldMesh) handGroup.remove(heldMesh);
+    heldMesh = buildHeldItem(TOOL_LIST[player.selectedTool]);
+    handGroup.add(heldMesh);
+    heldToolId = player.selectedTool;
+  }
+  if (mining && swingT >= 1) swingT = 0;
+  swingT = Math.min(1, swingT + dt * 4);
+  const s = Math.sin(swingT * Math.PI);
+  handGroup.rotation.set(-s * 1.1, -s * 0.5, 0);
+  handGroup.position.set(0.55 - s * 0.15, -0.5 - s * 0.1, -0.9);
+}
+
+function swingHeldItem() { swingT = 0; }
+
 // ハイライト枠
 const highlight = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(1.002, 1.002, 1.002)),
@@ -785,16 +843,17 @@ function mobInCrosshair() {
 }
 
 function attackMob(zb) {
-  const tool = Object.values(TOOLS)[player.selectedTool];
-  const dmg = Math.round(2 * tool.speed);
-  zb.hp -= dmg;
+  const tool = TOOL_LIST[player.selectedTool];
+  zb.hp -= tool.damage;
   zb.hurtT = 0.3;
+  const knock = tool.kind === 'sword' ? 8 : 6;
   const kx = zb.pos.x - player.pos.x, kz = zb.pos.z - player.pos.z;
   const len = Math.hypot(kx, kz) || 1;
-  zb.vel.x = kx / len * 6;
-  zb.vel.z = kz / len * 6;
+  zb.vel.x = kx / len * knock;
+  zb.vel.z = kz / len * knock;
   if (zb.onGround) zb.vel.y = 5;
-  player.attackCd = 0.45;
+  player.attackCd = tool.kind === 'sword' ? 0.35 : 0.5;
+  swingHeldItem();
   if (zb.hp <= 0 && !zb.dead) {
     zb.dead = true;
     zb.deathT = 0;
@@ -1046,6 +1105,7 @@ canvas.addEventListener('mousedown', e => {
 // ---------------------------------------------------------------------------
 const joy = { x: 0, y: 0 };
 let mineHeld = false;
+let attackHeld = false;
 const joyBase = document.getElementById('joy');
 const joyKnob = document.getElementById('joyKnob');
 const JOY_RADIUS = 40;
@@ -1124,6 +1184,7 @@ function holdButton(id, onDown, onUp) {
 holdButton('btnJump', () => { keys['Space'] = true; }, () => { keys['Space'] = false; });
 holdButton('btnDown', () => { keys['ShiftLeft'] = true; }, () => { keys['ShiftLeft'] = false; });
 holdButton('btnMine', () => { mineHeld = true; }, () => { mineHeld = false; player.mining = false; });
+holdButton('btnAttack', () => { attackHeld = true; }, () => { attackHeld = false; });
 holdButton('btnPlace', () => placeBlock(aimedBlock()));
 holdButton('btnFly', () => { player.flying = !player.flying; });
 holdButton('btnMenu', () => stopGame());
@@ -1201,7 +1262,8 @@ modeDisplay.style.cssText = `
 document.body.appendChild(modeDisplay);
 
 function cycleTool() {
-  player.selectedTool = (player.selectedTool + 1) % Object.keys(TOOLS).length;
+  player.selectedTool = (player.selectedTool + 1) % TOOL_LIST.length;
+  updateHeldItem();
 }
 
 function cycleGameMode() {
@@ -1229,7 +1291,7 @@ const mineFill = document.getElementById('mineFill');
 
 function getMiningTime(blockId) {
   const block = BLOCK_BY_ID[blockId];
-  const tool = Object.values(TOOLS)[player.selectedTool];
+  const tool = TOOL_LIST[player.selectedTool];
   const hardness = block ? (block.hardness || 0.5) : 0;
   const toolSpeed = tool.speed || 1;
   return Math.max(0.1, hardness / toolSpeed);
@@ -1394,9 +1456,17 @@ function update(dt) {
     highlight.visible = false;
   }
 
+  // 攻撃ボタン (押しっぱなしで連続攻撃)
+  if (attackHeld && !player.dead && player.attackCd <= 0) {
+    const zb = mobInCrosshair();
+    if (zb) attackMob(zb);
+    else { player.attackCd = 0.3; swingHeldItem(); }
+  }
+  updateHeldItem(dt, player.mining);
+
   // UI更新
-  const tool = Object.values(TOOLS)[player.selectedTool];
-  toolDisplay.textContent = `Tool: ${tool.name} (T)`;
+  const tool = TOOL_LIST[player.selectedTool];
+  toolDisplay.textContent = `${tool.name}  攻撃${tool.damage} / 採掘×${tool.speed}  (T)`;
   modeDisplay.textContent = `Mode: ${gameMode} (C)`;
 
   const time = Math.floor((gameTime / DAY_NIGHT_CYCLE) * 24000) % 24000;

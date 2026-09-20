@@ -223,9 +223,10 @@ body.touch #toolDisplay {
   box-shadow: 0 1px 0 #1a1a1a;
 }
 
-#btnMine { background: rgba(170, 74, 51, 0.85); }
+#btnAttack { background: rgba(200, 40, 40, 0.85); }
+#btnMine { background: rgba(140, 90, 50, 0.85); }
 #btnPlace { background: rgba(58, 109, 217, 0.85); }
-#btnJump { grid-column: 1 / -1; }
+#btnJump { background: rgba(60, 140, 70, 0.85); }
 
 #btnMenu {
   position: fixed;

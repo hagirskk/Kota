@@ -163,20 +163,136 @@ function generateTerrain(world, seed = 1) {
 }
 
 // ---------------------------------------------------------------------------
-// メッシュ生成 (不透明・半透明で別メッシュ)
+// テクスチャアトラス (16px ピクセルアートを手続き生成)
+// 列 = ブロック ID、行 = 0:上面 1:側面 2:底面
+// ---------------------------------------------------------------------------
+const TILE = 16;
+const ATLAS_COLS = 11;
+const ATLAS_ROWS = 3;
+
+function mulberry32(seed) {
+  return () => {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function makeAtlas() {
+  const cvs = document.createElement('canvas');
+  cvs.width = TILE * ATLAS_COLS;
+  cvs.height = TILE * ATLAS_ROWS;
+  const ctx = cvs.getContext('2d');
+  const rnd = mulberry32(20240920);
+  const rgb = c => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
+  const scale = (c, k) => rgb(c).map(v => Math.max(0, Math.min(255, v * k)));
+  const jitter = amt => 1 + (rnd() * 2 - 1) * amt;
+
+  const put = (col, row, fn) => {
+    const img = ctx.createImageData(TILE, TILE);
+    for (let y = 0; y < TILE; y++) {
+      for (let x = 0; x < TILE; x++) {
+        const [r, g, b] = fn(x, y);
+        const i = (y * TILE + x) * 4;
+        img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, col * TILE, row * TILE);
+  };
+  const all = (col, fn) => { put(col, 0, fn); put(col, 1, fn); put(col, 2, fn); };
+
+  const noisy = (base, amt) => () => scale(base, jitter(amt));
+  const grassTop = () => scale(BLOCKS.GRASS.top, jitter(0.12));
+  const dirt = noisy(BLOCKS.DIRT.color, 0.16);
+  const grassEdge = Array.from({ length: TILE }, () => 3 + Math.floor(rnd() * 3));
+  const grassSide = (x, y) => (y < grassEdge[x] ? grassTop() : dirt());
+
+  const stone = () => scale(BLOCKS.STONE.color, rnd() < 0.12 ? 0.78 : jitter(0.1));
+  const cobble = (x, y) => {
+    const edge = (x % 5 === 0) || (y % 5 === 0) || ((x + y) % 7 === 0);
+    return scale(BLOCKS.COBBLESTONE.color, edge ? 0.62 : jitter(0.14));
+  };
+  const woodCols = Array.from({ length: TILE }, () => 0.78 + rnd() * 0.42);
+  const woodSide = (x) => scale(BLOCKS.WOOD.side, woodCols[x] * jitter(0.05));
+  const woodTop = (x, y) => {
+    const d = Math.hypot(x - 7.5, y - 7.5);
+    return scale(BLOCKS.WOOD.top, (Math.floor(d) % 2 ? 0.8 : 1.05) * jitter(0.05));
+  };
+  const leaves = () => scale(BLOCKS.LEAVES.color, rnd() < 0.28 ? 0.55 : jitter(0.14));
+  const sand = noisy(BLOCKS.SAND.color, 0.07);
+  const plankRows = Array.from({ length: TILE }, () => 0.9 + rnd() * 0.2);
+  const plank = (x, y) => {
+    if (y % 4 === 3) return scale(BLOCKS.PLANK.color, 0.6);
+    const seam = ((Math.floor(y / 4) % 2) * 8 + 7) % TILE;
+    if (x === seam) return scale(BLOCKS.PLANK.color, 0.65);
+    return scale(BLOCKS.PLANK.color, plankRows[y] * jitter(0.05));
+  };
+  const brick = (x, y) => {
+    const row = Math.floor(y / 4);
+    const mortar = (y % 4 === 3) || ((x + row * 4) % 8 === 7);
+    return mortar ? scale(0xb8ab98, jitter(0.05)) : scale(BLOCKS.BRICK.color, jitter(0.1));
+  };
+  const water = (x, y) => scale(BLOCKS.WATER.color, 0.9 + 0.18 * Math.sin((x + y * 2) * 0.7) + (rnd() - 0.5) * 0.08);
+
+  all(BLOCKS.AIR.id, () => [0, 0, 0]);
+  put(BLOCKS.GRASS.id, 0, grassTop);
+  put(BLOCKS.GRASS.id, 1, grassSide);
+  put(BLOCKS.GRASS.id, 2, dirt);
+  all(BLOCKS.DIRT.id, dirt);
+  all(BLOCKS.STONE.id, stone);
+  put(BLOCKS.WOOD.id, 0, woodTop);
+  put(BLOCKS.WOOD.id, 1, woodSide);
+  put(BLOCKS.WOOD.id, 2, woodTop);
+  all(BLOCKS.LEAVES.id, leaves);
+  all(BLOCKS.SAND.id, sand);
+  all(BLOCKS.WATER.id, water);
+  all(BLOCKS.PLANK.id, plank);
+  all(BLOCKS.BRICK.id, brick);
+  all(BLOCKS.COBBLESTONE.id, cobble);
+
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.flipY = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// ---------------------------------------------------------------------------
+// メッシュ生成 (不透明・半透明で別メッシュ、頂点 AO 付き)
 // ---------------------------------------------------------------------------
 const FACES = [
-  { dir: [ 1, 0, 0], corners: [[1,0,0],[1,1,0],[1,0,1],[1,1,1]], normal: [1,0,0], shade: 0.85 },
-  { dir: [-1, 0, 0], corners: [[0,0,1],[0,1,1],[0,0,0],[0,1,0]], normal: [-1,0,0], shade: 0.85 },
-  { dir: [ 0, 1, 0], corners: [[0,1,1],[1,1,1],[0,1,0],[1,1,0]], normal: [0,1,0], shade: 1.0 },
-  { dir: [ 0,-1, 0], corners: [[0,0,0],[1,0,0],[0,0,1],[1,0,1]], normal: [0,-1,0], shade: 0.6 },
-  { dir: [ 0, 0, 1], corners: [[1,0,1],[1,1,1],[0,0,1],[0,1,1]], normal: [0,0,1], shade: 0.75 },
-  { dir: [ 0, 0,-1], corners: [[0,0,0],[0,1,0],[1,0,0],[1,1,0]], normal: [0,0,-1], shade: 0.75 },
+  { dir: [ 1, 0, 0], corners: [[1,0,0],[1,1,0],[1,0,1],[1,1,1]], normal: [1,0,0],  shade: 0.85, u: 2, v: 1, row: 1 },
+  { dir: [-1, 0, 0], corners: [[0,0,1],[0,1,1],[0,0,0],[0,1,0]], normal: [-1,0,0], shade: 0.85, u: 2, v: 1, row: 1 },
+  { dir: [ 0, 1, 0], corners: [[0,1,1],[1,1,1],[0,1,0],[1,1,0]], normal: [0,1,0],  shade: 1.0,  u: 0, v: 2, row: 0 },
+  { dir: [ 0,-1, 0], corners: [[0,0,0],[1,0,0],[0,0,1],[1,0,1]], normal: [0,-1,0], shade: 0.6,  u: 0, v: 2, row: 2 },
+  { dir: [ 0, 0, 1], corners: [[1,0,1],[1,1,1],[0,0,1],[0,1,1]], normal: [0,0,1],  shade: 0.75, u: 0, v: 1, row: 1 },
+  { dir: [ 0, 0,-1], corners: [[0,0,0],[0,1,0],[1,0,0],[1,1,0]], normal: [0,0,-1], shade: 0.75, u: 0, v: 1, row: 1 },
 ];
+const AO_LEVELS = [0.45, 0.65, 0.82, 1.0];
+
+function occludes(world, x, y, z) {
+  const b = BLOCK_BY_ID[getBlock(world, x, y, z)];
+  return !!(b && b.solid && !b.transparent);
+}
+
+function vertexAO(world, x, y, z, face, corner) {
+  const base = [x + face.dir[0], y + face.dir[1], z + face.dir[2]];
+  const s1 = [0, 0, 0], s2 = [0, 0, 0];
+  s1[face.u] = corner[face.u] ? 1 : -1;
+  s2[face.v] = corner[face.v] ? 1 : -1;
+  const side1 = occludes(world, base[0] + s1[0], base[1] + s1[1], base[2] + s1[2]);
+  const side2 = occludes(world, base[0] + s2[0], base[1] + s2[1], base[2] + s2[2]);
+  const diag  = occludes(world, base[0] + s1[0] + s2[0], base[1] + s1[1] + s2[1], base[2] + s1[2] + s2[2]);
+  if (side1 && side2) return AO_LEVELS[0];
+  return AO_LEVELS[3 - (side1 + side2 + diag)];
+}
 
 function buildMesh(world) {
-  const opaque = { positions: [], normals: [], colors: [], indices: [] };
-  const water  = { positions: [], normals: [], colors: [], indices: [] };
+  const opaque = { positions: [], normals: [], colors: [], uvs: [], indices: [] };
+  const water  = { positions: [], normals: [], colors: [], uvs: [], indices: [] };
 
   for (let y = 0; y < WORLD_HEIGHT; y++) {
     for (let z = 0; z < WORLD_SIZE; z++) {
@@ -188,29 +304,20 @@ function buildMesh(world) {
 
         for (const face of FACES) {
           const nx = x + face.dir[0], ny = y + face.dir[1], nz = z + face.dir[2];
-          const neighborId = getBlock(world, nx, ny, nz);
-          const neighbor = BLOCK_BY_ID[neighborId];
+          const neighbor = BLOCK_BY_ID[getBlock(world, nx, ny, nz)];
 
-          // 不透明同士の面は描画しない
           if (block === neighbor) continue;
           if (neighbor && neighbor.solid && !neighbor.transparent) continue;
           if (block.transparent && neighbor && neighbor.transparent) continue;
 
           const idxBase = target.positions.length / 3;
-          let color = block.color;
-          if (block === BLOCKS.GRASS) {
-            if (face.dir[1] === 1) color = block.top;
-            else if (face.dir[1] === -1) color = BLOCKS.DIRT.color;
-            else color = block.color;
-          }
-          const r = ((color >> 16) & 0xff) / 255 * face.shade;
-          const g = ((color >> 8) & 0xff) / 255 * face.shade;
-          const b = (color & 0xff) / 255 * face.shade;
-
           for (const c of face.corners) {
+            const ao = block.transparent ? 1 : vertexAO(world, x, y, z, face, c);
+            const l = face.shade * ao;
             target.positions.push(x + c[0], y + c[1], z + c[2]);
             target.normals.push(...face.normal);
-            target.colors.push(r, g, b);
+            target.colors.push(l, l, l);
+            target.uvs.push((id + c[face.u]) / ATLAS_COLS, (face.row + (1 - c[face.v])) / ATLAS_ROWS);
           }
           target.indices.push(idxBase, idxBase + 1, idxBase + 2, idxBase + 2, idxBase + 1, idxBase + 3);
         }
@@ -225,6 +332,7 @@ function toGeometry(mesh) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(mesh.positions, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(mesh.normals, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(mesh.colors, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(mesh.uvs, 2));
   geo.setIndex(mesh.indices);
   geo.computeBoundingSphere();
   return geo;
@@ -340,6 +448,8 @@ function getSkyColor(time) {
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -349,18 +459,58 @@ scene.fog = new THREE.Fog(initialSkyColor, 40, 120);
 
 const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 500);
 
-// ライト
+// ライト (太陽は昼夜サイクルで動く)
 const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-sun.position.set(40, 80, 30);
-scene.add(sun);
-scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+sun.castShadow = true;
+const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+sun.shadow.mapSize.set(coarsePointer ? 1024 : 2048, coarsePointer ? 1024 : 2048);
+sun.shadow.camera.left = -52;
+sun.shadow.camera.right = 52;
+sun.shadow.camera.top = 52;
+sun.shadow.camera.bottom = -52;
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 320;
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.03;
+sun.target.position.set(WORLD_SIZE / 2, SEA_LEVEL, WORLD_SIZE / 2);
+scene.add(sun, sun.target);
+const SUN_LOW = new THREE.Color(0xffa060);
+const SUN_HIGH = new THREE.Color(0xfff4e0);
+
+const hemi = new THREE.HemisphereLight(0x87ceeb, 0x5a4a30, 0.5);
+scene.add(hemi);
+
+// 雲 (二枚重ねで x 方向にループさせる)
+const CLOUD_SPAN = 128;
+const cloudCells = [];
+for (let cx = 0; cx < CLOUD_SPAN / 4; cx++) {
+  for (let cz = -8; cz < 24; cz++) {
+    if (valueNoise(cx * 4, cz * 4, 14, 777) > 0.6) cloudCells.push([cx * 4, cz * 4]);
+  }
+}
+const cloudGroup = new THREE.Group();
+const cloudGeo = new THREE.BoxGeometry(4, 2, 4);
+const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+for (const offset of [0, -CLOUD_SPAN]) {
+  const inst = new THREE.InstancedMesh(cloudGeo, cloudMat, cloudCells.length);
+  const m = new THREE.Matrix4();
+  cloudCells.forEach(([x, z], i) => {
+    m.setPosition(x + 2 + offset, 44, z + 2);
+    inst.setMatrixAt(i, m);
+  });
+  inst.castShadow = true;
+  cloudGroup.add(inst);
+}
+scene.add(cloudGroup);
 
 // ワールド
 const world = createWorld();
 generateTerrain(world, Math.floor(Math.random() * 10000));
 
-const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+const atlas = makeAtlas();
+const material = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true });
 const waterMat = new THREE.MeshLambertMaterial({
+  map: atlas,
   vertexColors: true,
   transparent: true,
   opacity: 0.7,
@@ -381,7 +531,10 @@ function rebuildMesh() {
     waterMesh.geometry.dispose();
   }
   opaqueMesh = new THREE.Mesh(toGeometry(opaque), material);
+  opaqueMesh.castShadow = true;
+  opaqueMesh.receiveShadow = true;
   waterMesh = new THREE.Mesh(toGeometry(water), waterMat);
+  waterMesh.receiveShadow = true;
   scene.add(opaqueMesh);
   scene.add(waterMesh);
 }
@@ -737,7 +890,7 @@ const SPRINT = 8;
 const FLY_SPEED = 12;
 
 let last = performance.now();
-let gameTime = 0;
+let gameTime = DAY_NIGHT_CYCLE * 0.3; // 朝からスタート
 const coords = document.getElementById('coords');
 const mineBar = document.getElementById('mineBar');
 const mineFill = document.getElementById('mineFill');
@@ -753,10 +906,29 @@ function getMiningTime(blockId) {
 function update(dt) {
   gameTime += dt;
 
-  // 昼夜サイクル更新
+  // 昼夜サイクル更新 (空の色・太陽の位置と色・雲の流れ・水面の揺らぎ)
   const skyColor = getSkyColor(gameTime);
   scene.background = skyColor;
   scene.fog.color = skyColor;
+
+  const dayT = (gameTime % DAY_NIGHT_CYCLE) / DAY_NIGHT_CYCLE;
+  const sunAngle = (dayT - 0.125) * Math.PI * 2;
+  const elev = Math.sin(sunAngle);
+  const daylight = Math.max(0, elev);
+  sun.position.set(
+    WORLD_SIZE / 2 + Math.cos(sunAngle) * 140,
+    SEA_LEVEL + elev * 140,
+    WORLD_SIZE / 2 + 50
+  );
+  sun.intensity = 0.08 + daylight * 1.5;
+  sun.color.lerpColors(SUN_LOW, SUN_HIGH, Math.min(1, daylight * 2.5));
+  sun.castShadow = elev > 0.04;
+  hemi.color.copy(skyColor);
+  hemi.intensity = 0.25 + daylight * 0.55;
+  scene.fog.near = 30 + daylight * 20;
+
+  cloudGroup.position.x = (gameTime * 0.7) % CLOUD_SPAN;
+  waterMat.opacity = 0.66 + 0.06 * Math.sin(gameTime * 1.7);
 
   // カメラ向き
   camera.rotation.order = 'YXZ';

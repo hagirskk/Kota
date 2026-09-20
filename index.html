@@ -4,10 +4,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Kota Craft - Minecraft風ボクセルゲーム</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="crosshair">+</div>
+  <div id="mineBar" hidden><div id="mineFill"></div></div>
+  <div id="hint" hidden>ドラッグで視点移動 / 長押しで採掘 / Esc でメニュー</div>
 
   <div id="hud">
     <div id="hotbar"></div>
@@ -39,7 +42,7 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
     }
   }
   </script>

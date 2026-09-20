@@ -5,14 +5,42 @@ html, body {
   height: 100%;
   overflow: hidden;
   background: #87ceeb;
-  font-family: "Minecraftia", "Arial", monospace;
+  font-family: "Courier New", monospace;
   color: #fff;
   user-select: none;
 }
 
-@import url('https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap');
+canvas { display: block; outline: none; }
 
-canvas { display: block; }
+#mineBar {
+  position: fixed;
+  top: calc(50% + 24px); left: 50%;
+  transform: translateX(-50%);
+  width: 80px; height: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 2px solid #1a1a1a;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#mineFill {
+  height: 100%;
+  width: 0;
+  background: #ffd700;
+}
+
+#hint {
+  position: fixed;
+  top: 16px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  padding: 6px 12px;
+  font-size: 12px;
+  border: 2px solid #1a1a1a;
+  pointer-events: none;
+  z-index: 5;
+  white-space: nowrap;
+}
 
 #crosshair {
   position: fixed;
@@ -131,12 +159,12 @@ canvas { display: block; }
 }
 
 .panel h1 {
-  font-size: 40px;
-  margin-bottom: 4px;
+  font-family: "Press Start 2P", "Courier New", monospace;
+  font-size: 28px;
+  margin-bottom: 8px;
   color: #d4af37;
-  font-weight: bold;
-  letter-spacing: 2px;
-  text-shadow: 2px 2px 0 rgba(0,0,0,0.5);
+  letter-spacing: 1px;
+  text-shadow: 3px 3px 0 rgba(0,0,0,0.6);
 }
 
 .panel .subtitle {
@@ -160,7 +188,6 @@ canvas { display: block; }
   margin-bottom: 18px;
   font-size: 12px;
   line-height: 2;
-  font-family: "Courier Prime", monospace;
 }
 
 .panel ul b {

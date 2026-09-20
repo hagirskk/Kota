@@ -9,7 +9,7 @@ const BLOCKS = {
   DIRT:   { id: 2, name: '土',      color: 0x8f7853, solid: true, hardness: 0.5 },
   STONE:  { id: 3, name: '石',      color: 0x7e7e7e, solid: true, hardness: 1.5 },
   WOOD:   { id: 4, name: '原木',    color: 0x6b4423, side: 0x634521, top: 0x7f5e2e, solid: true, hardness: 2.0 },
-  LEAVES: { id: 5, name: '葉',      color: 0x58a020, solid: true, hardness: 0.2, transparent: true },
+  LEAVES: { id: 5, name: '葉',      color: 0x58a020, solid: true, hardness: 0.2 },
   SAND:   { id: 6, name: '砂',      color: 0xdcc48e, solid: true, hardness: 0.5 },
   WATER:  { id: 7, name: '水',      color: 0x3a6dd9, solid: false, transparent: true },
   PLANK:  { id: 8, name: '板',      color: 0xc29866, solid: true, hardness: 2.0 },
@@ -430,10 +430,12 @@ const player = {
 // ---------------------------------------------------------------------------
 const keys = Object.create(null);
 window.addEventListener('keydown', e => {
+  if (e.code === 'Space') e.preventDefault();
   keys[e.code] = true;
   if (e.code === 'KeyF') player.flying = !player.flying;
   if (e.code === 'KeyC') cycleGameMode();
   if (e.code === 'KeyT') cycleTool();
+  if (e.code === 'Escape' && dragLook && playing) stopGame();
   if (e.code >= 'Digit1' && e.code <= 'Digit9') {
     const i = parseInt(e.code.slice(5), 10) - 1;
     if (i < PLACEABLE.length) selectSlot(i);
@@ -441,29 +443,77 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
+// ポインターロックが使えない環境 (埋め込み iframe など) ではドラッグで視点操作する
 let pointerLocked = false;
+let dragLook = false;
+let playing = false;
+let dragging = false;
+let dragMoved = 0;
 const canvas = renderer.domElement;
+canvas.tabIndex = 0;
+const overlay = document.getElementById('overlay');
+const hint = document.getElementById('hint');
 
-document.getElementById('startBtn').addEventListener('click', () => {
-  canvas.requestPointerLock();
-});
+function startGame() {
+  playing = true;
+  overlay.classList.add('hidden');
+  canvas.focus();
+  try {
+    const p = canvas.requestPointerLock();
+    if (p && p.catch) p.catch(() => {});
+  } catch (_) {}
+  setTimeout(() => {
+    if (!pointerLocked && playing) {
+      dragLook = true;
+      hint.hidden = false;
+    }
+  }, 400);
+}
+
+function stopGame() {
+  playing = false;
+  dragging = false;
+  player.mining = false;
+  hint.hidden = true;
+  overlay.classList.remove('hidden');
+}
+
+document.getElementById('startBtn').addEventListener('click', startGame);
 
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === canvas;
-  document.getElementById('overlay').classList.toggle('hidden', pointerLocked);
+  if (pointerLocked) {
+    dragLook = false;
+    hint.hidden = true;
+  } else if (playing && !dragLook) {
+    stopGame();
+  }
 });
 
-document.addEventListener('mousemove', e => {
-  if (!pointerLocked) return;
-  player.yaw   -= e.movementX * 0.0025;
-  player.pitch -= e.movementY * 0.0025;
+function rotateView(mx, my, sens) {
+  player.yaw   -= mx * sens;
+  player.pitch -= my * sens;
   const lim = Math.PI / 2 - 0.01;
   if (player.pitch >  lim) player.pitch =  lim;
   if (player.pitch < -lim) player.pitch = -lim;
+}
+
+document.addEventListener('mousemove', e => {
+  if (pointerLocked) {
+    rotateView(e.movementX, e.movementY, 0.0025);
+  } else if (dragLook && dragging) {
+    rotateView(e.movementX, e.movementY, 0.004);
+    dragMoved += Math.abs(e.movementX) + Math.abs(e.movementY);
+    if (dragMoved > 6) player.mining = false;
+  }
 });
 
 canvas.addEventListener('mousedown', e => {
-  if (!pointerLocked) return;
+  if (!playing) return;
+  if (dragLook && e.button === 0) {
+    dragging = true;
+    dragMoved = 0;
+  }
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
   const origin = camera.position;
@@ -497,14 +547,17 @@ canvas.addEventListener('mousedown', e => {
   }
 });
 
-canvas.addEventListener('mouseup', e => {
-  if (e.button === 0) player.mining = false;
+window.addEventListener('mouseup', e => {
+  if (e.button === 0) {
+    player.mining = false;
+    dragging = false;
+  }
 });
 
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
 window.addEventListener('wheel', e => {
-  if (!pointerLocked) return;
+  if (!playing) return;
   selectSlot((selected + (e.deltaY > 0 ? 1 : -1) + PLACEABLE.length) % PLACEABLE.length);
 }, { passive: true });
 
@@ -585,6 +638,8 @@ const FLY_SPEED = 12;
 let last = performance.now();
 let gameTime = 0;
 const coords = document.getElementById('coords');
+const mineBar = document.getElementById('mineBar');
+const mineFill = document.getElementById('mineFill');
 
 function getMiningTime(blockId) {
   const block = BLOCK_BY_ID[blockId];
@@ -667,21 +722,26 @@ function update(dt) {
   camera.getWorldDirection(dir);
   const hit = raycast(world, camera.position, dir, 6);
 
+  let mineProgress = 0;
   if (player.mining && player.miningTarget) {
-    const targetBlock = getBlock(world, player.miningTarget.x, player.miningTarget.y, player.miningTarget.z);
-    if (hit && hit.x === player.miningTarget.x && hit.y === player.miningTarget.y && hit.z === player.miningTarget.z && targetBlock !== BLOCKS.AIR.id) {
+    const t = player.miningTarget;
+    const targetBlock = getBlock(world, t.x, t.y, t.z);
+    if (hit && hit.x === t.x && hit.y === t.y && hit.z === t.z && targetBlock !== BLOCKS.AIR.id) {
       const elapsed = (performance.now() - player.miningStart) / 1000;
-      const miningTime = getMiningTime(targetBlock);
+      const miningTime = gameMode === 'creative' ? 0 : getMiningTime(targetBlock);
       if (elapsed >= miningTime) {
-        setBlock(world, player.miningTarget.x, player.miningTarget.y, player.miningTarget.z, BLOCKS.AIR.id);
+        setBlock(world, t.x, t.y, t.z, BLOCKS.AIR.id);
         rebuildMesh();
         player.mining = false;
+      } else {
+        mineProgress = elapsed / miningTime;
       }
-      highlight.opacity = 1 - (elapsed / miningTime);
     } else {
       player.mining = false;
     }
   }
+  mineBar.hidden = mineProgress === 0;
+  mineFill.style.width = `${Math.round(mineProgress * 100)}%`;
 
   // ハイライト
   if (hit) {

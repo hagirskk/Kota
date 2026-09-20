@@ -350,13 +350,13 @@ function isSolidAt(world, x, y, z) {
   return b && b.solid;
 }
 
-function collides(world, pos) {
-  const minX = Math.floor(pos.x - PLAYER_RADIUS);
-  const maxX = Math.floor(pos.x + PLAYER_RADIUS);
+function collides(world, pos, radius = PLAYER_RADIUS, height = PLAYER_HEIGHT) {
+  const minX = Math.floor(pos.x - radius);
+  const maxX = Math.floor(pos.x + radius);
   const minY = Math.floor(pos.y);
-  const maxY = Math.floor(pos.y + PLAYER_HEIGHT - 0.01);
-  const minZ = Math.floor(pos.z - PLAYER_RADIUS);
-  const maxZ = Math.floor(pos.z + PLAYER_RADIUS);
+  const maxY = Math.floor(pos.y + height - 0.01);
+  const minZ = Math.floor(pos.z - radius);
+  const maxZ = Math.floor(pos.z + radius);
   for (let y = minY; y <= maxY; y++) {
     for (let z = minZ; z <= maxZ; z++) {
       for (let x = minX; x <= maxX; x++) {
@@ -424,22 +424,22 @@ function raycast(world, origin, direction, maxDist = 8) {
 // 昼夜サイクル
 // ---------------------------------------------------------------------------
 const DAY_NIGHT_CYCLE = 120; // 秒単位
-function getSkyColor(time) {
+const SKY_DAY = new THREE.Color(0x87ceeb);
+const SKY_DUSK = new THREE.Color(0xff8c4a);
+const SKY_NIGHT = new THREE.Color(0x0d1230);
+
+// 太陽の高さ (-1..1) から空の色を決める
+function getSkyColor(elev) {
+  const c = new THREE.Color();
+  if (elev > 0.3) return c.copy(SKY_DAY);
+  if (elev > 0) return c.lerpColors(SKY_DUSK, SKY_DAY, elev / 0.3);
+  if (elev > -0.25) return c.lerpColors(SKY_NIGHT, SKY_DUSK, (elev + 0.25) / 0.25);
+  return c.copy(SKY_NIGHT);
+}
+
+function sunElevation(time) {
   const t = (time % DAY_NIGHT_CYCLE) / DAY_NIGHT_CYCLE;
-  let color;
-  if (t < 0.25) { // 夜から朝
-    const x = t * 4;
-    color = new THREE.Color().lerpColors(new THREE.Color(0x1a1a2e), new THREE.Color(0x87ceeb), x);
-  } else if (t < 0.5) { // 昼
-    color = new THREE.Color(0x87ceeb);
-  } else if (t < 0.75) { // 昼から夜
-    const x = (t - 0.5) * 4;
-    color = new THREE.Color().lerpColors(new THREE.Color(0x87ceeb), new THREE.Color(0xff6b35), x);
-  } else { // 夜
-    const x = (t - 0.75) * 4;
-    color = new THREE.Color().lerpColors(new THREE.Color(0xff6b35), new THREE.Color(0x1a1a2e), x);
-  }
-  return color;
+  return Math.sin((t - 0.125) * Math.PI * 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -453,7 +453,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const initialSkyColor = getSkyColor(0);
+const initialSkyColor = getSkyColor(1);
 scene.background = initialSkyColor;
 scene.fog = new THREE.Fog(initialSkyColor, 40, 120);
 
@@ -479,6 +479,12 @@ const SUN_HIGH = new THREE.Color(0xfff4e0);
 
 const hemi = new THREE.HemisphereLight(0x87ceeb, 0x5a4a30, 0.5);
 scene.add(hemi);
+const NIGHT_HEMI = new THREE.Color(0x4a5a8a);
+
+// 月明かり (太陽の反対側から、影なし)
+const moon = new THREE.DirectionalLight(0x8fa0d0, 0);
+moon.target.position.set(WORLD_SIZE / 2, SEA_LEVEL, WORLD_SIZE / 2);
+scene.add(moon, moon.target);
 
 // 雲 (二枚重ねで x 方向にループさせる)
 const CLOUD_SPAN = 128;
@@ -563,19 +569,343 @@ const player = {
   miningStart: 0,
   miningTarget: null,
   health: 20,
-  hunger: 20,
+  maxHealth: 20,
+  dead: false,
+  invuln: 0,
+  attackCd: 0,
+  sinceHurt: 0,
+  regenT: 0,
+  knock: new THREE.Vector3(),
+  kills: 0,
 };
 
 // スポーン地点を地面に合わせる
+const spawnPoint = new THREE.Vector3(WORLD_SIZE / 2, WORLD_HEIGHT, WORLD_SIZE / 2);
 {
   const cx = Math.floor(WORLD_SIZE / 2);
   const cz = Math.floor(WORLD_SIZE / 2);
   for (let y = WORLD_HEIGHT - 1; y >= 0; y--) {
     if (BLOCK_BY_ID[getBlock(world, cx, y, cz)].solid) {
-      player.pos.set(cx + 0.5, y + 2, cz + 0.5);
+      spawnPoint.set(cx + 0.5, y + 2, cz + 0.5);
       break;
     }
   }
+  player.pos.copy(spawnPoint);
+}
+
+// ---------------------------------------------------------------------------
+// 体力
+// ---------------------------------------------------------------------------
+const heartsEl = document.getElementById('hearts');
+const hurtEl = document.getElementById('hurt');
+const deathOverlay = document.getElementById('deathOverlay');
+let hurtFlash = 0;
+let shownHealth = -1;
+
+for (let i = 0; i < 10; i++) {
+  const h = document.createElement('span');
+  h.className = 'heart';
+  h.textContent = '♥';
+  heartsEl.appendChild(h);
+}
+
+function renderHearts() {
+  if (shownHealth === player.health) return;
+  shownHealth = player.health;
+  [...heartsEl.children].forEach((el, i) => {
+    const v = player.health - i * 2;
+    el.className = 'heart ' + (v >= 2 ? 'full' : v === 1 ? 'half' : 'empty');
+  });
+}
+
+function damagePlayer(amount, from) {
+  if (player.dead || gameMode === 'creative' || player.invuln > 0 || amount <= 0) return;
+  player.health = Math.max(0, player.health - amount);
+  player.invuln = 0.5;
+  player.sinceHurt = 0;
+  hurtFlash = 1;
+  if (from) {
+    const kx = player.pos.x - from.x, kz = player.pos.z - from.z;
+    const len = Math.hypot(kx, kz) || 1;
+    player.knock.set(kx / len * 7, 0, kz / len * 7);
+    if (player.onGround) player.vel.y = 5;
+  }
+  if (player.health === 0) die();
+}
+
+function die() {
+  player.dead = true;
+  player.mining = false;
+  mineHeld = false;
+  deathOverlay.classList.remove('hidden');
+  if (pointerLocked) document.exitPointerLock();
+}
+
+function respawn() {
+  player.dead = false;
+  player.health = player.maxHealth;
+  player.pos.copy(spawnPoint);
+  player.vel.set(0, 0, 0);
+  player.knock.set(0, 0, 0);
+  deathOverlay.classList.add('hidden');
+  startGame();
+}
+document.getElementById('respawnBtn').addEventListener('click', respawn);
+
+// ---------------------------------------------------------------------------
+// 敵モブ (ゾンビ): 夜に湧いて追いかけてくる。日光で燃える
+// ---------------------------------------------------------------------------
+const ZOMBIE = { radius: 0.3, height: 1.9, speed: 2.4, hp: 20, damage: 3, reach: 1.7, max: 8 };
+const zombies = [];
+const zombieGroup = new THREE.Group();
+scene.add(zombieGroup);
+const mobRaycaster = new THREE.Raycaster();
+let spawnTimer = 0;
+
+function makeFaceTexture() {
+  const c = document.createElement('canvas');
+  c.width = 8; c.height = 8;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#4f8a3a';
+  ctx.fillRect(0, 0, 8, 8);
+  ctx.fillStyle = '#3c6b2c';
+  ctx.fillRect(0, 0, 8, 2);
+  ctx.fillStyle = '#111';
+  ctx.fillRect(1, 3, 2, 1);
+  ctx.fillRect(5, 3, 2, 1);
+  ctx.fillStyle = '#2a4a20';
+  ctx.fillRect(3, 5, 2, 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const zombieFace = makeFaceTexture();
+
+function buildZombieMesh() {
+  const mats = {
+    skin:  new THREE.MeshLambertMaterial({ color: 0x5a9a3f }),
+    face:  new THREE.MeshLambertMaterial({ map: zombieFace }),
+    shirt: new THREE.MeshLambertMaterial({ color: 0x2f8f8f }),
+    pants: new THREE.MeshLambertMaterial({ color: 0x3b3f8a }),
+  };
+  const box = (w, h, d, mat, x, y, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    return m;
+  };
+  const g = new THREE.Group();
+  const s = mats.skin;
+  const head = box(0.5, 0.5, 0.5, [s, s, s, s, mats.face, s], 0, 1.65, 0);
+  const body = box(0.5, 0.75, 0.25, mats.shirt, 0, 1.025, 0);
+  const armL = box(0.25, 0.75, 0.25, mats.skin, -0.375, 1.4, 0);
+  const armR = box(0.25, 0.75, 0.25, mats.skin,  0.375, 1.4, 0);
+  const legL = box(0.25, 0.65, 0.25, mats.pants, -0.125, 0.65, 0);
+  const legR = box(0.25, 0.65, 0.25, mats.pants,  0.125, 0.65, 0);
+  // 腕と脚は付け根を回転の中心にする
+  for (const m of [armL, armR]) { m.geometry.translate(0, -0.375, 0); m.position.y = 1.4; }
+  for (const m of [legL, legR]) { m.geometry.translate(0, -0.325, 0); m.position.y = 0.65; }
+  armL.rotation.x = armR.rotation.x = -Math.PI / 2;
+  g.add(head, body, armL, armR, legL, legR);
+  return { group: g, parts: { head, armL, armR, legL, legR }, mats: Object.values(mats) };
+}
+
+function skyExposed(x, y, z) {
+  for (let yy = Math.floor(y) + 2; yy < WORLD_HEIGHT; yy++) {
+    if (BLOCK_BY_ID[getBlock(world, Math.floor(x), yy, Math.floor(z))].solid) return false;
+  }
+  return true;
+}
+
+function spawnZombie(x, y, z) {
+  const { group, parts, mats } = buildZombieMesh();
+  const zb = {
+    pos: new THREE.Vector3(x, y, z),
+    vel: new THREE.Vector3(),
+    yaw: Math.random() * Math.PI * 2,
+    hp: ZOMBIE.hp,
+    onGround: false,
+    attackCd: 0,
+    hurtT: 0,
+    swing: 0,
+    wanderT: 0,
+    wander: new THREE.Vector2(),
+    burning: false,
+    dead: false,
+    deathT: 0,
+    walkT: 0,
+    group, parts, mats,
+  };
+  group.userData.zombie = zb;
+  zombieGroup.add(group);
+  zombies.push(zb);
+  return zb;
+}
+
+function removeZombie(zb) {
+  zombieGroup.remove(zb.group);
+  zb.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  zb.mats.forEach(m => m.dispose());
+  zombies.splice(zombies.indexOf(zb), 1);
+}
+
+function trySpawnZombies() {
+  if (gameMode !== 'survival' || zombies.length >= ZOMBIE.max) return;
+  for (let i = 0; i < 6; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const dist = 14 + Math.random() * 16;
+    const x = Math.floor(player.pos.x + Math.cos(ang) * dist);
+    const z = Math.floor(player.pos.z + Math.sin(ang) * dist);
+    if (x < 1 || z < 1 || x >= WORLD_SIZE - 1 || z >= WORLD_SIZE - 1) continue;
+    let y = WORLD_HEIGHT - 1;
+    while (y > 0 && !BLOCK_BY_ID[getBlock(world, x, y, z)].solid) y--;
+    const ground = getBlock(world, x, y, z);
+    if (ground !== BLOCKS.GRASS.id && ground !== BLOCKS.SAND.id && ground !== BLOCKS.DIRT.id) continue;
+    if (getBlock(world, x, y + 1, z) !== BLOCKS.AIR.id || getBlock(world, x, y + 2, z) !== BLOCKS.AIR.id) continue;
+    spawnZombie(x + 0.5, y + 1, z + 0.5);
+    return;
+  }
+}
+
+function mobInCrosshair() {
+  if (zombies.length === 0) return null;
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  mobRaycaster.set(camera.position, dir);
+  mobRaycaster.far = 4.5;
+  const hits = mobRaycaster.intersectObjects(zombieGroup.children, true);
+  for (const h of hits) {
+    let o = h.object;
+    while (o && !o.userData.zombie) o = o.parent;
+    if (o && !o.userData.zombie.dead) return o.userData.zombie;
+  }
+  return null;
+}
+
+function attackMob(zb) {
+  const tool = Object.values(TOOLS)[player.selectedTool];
+  const dmg = Math.round(2 * tool.speed);
+  zb.hp -= dmg;
+  zb.hurtT = 0.3;
+  const kx = zb.pos.x - player.pos.x, kz = zb.pos.z - player.pos.z;
+  const len = Math.hypot(kx, kz) || 1;
+  zb.vel.x = kx / len * 6;
+  zb.vel.z = kz / len * 6;
+  if (zb.onGround) zb.vel.y = 5;
+  player.attackCd = 0.45;
+  if (zb.hp <= 0 && !zb.dead) {
+    zb.dead = true;
+    zb.deathT = 0;
+    player.kills++;
+  }
+}
+
+const HURT_COLOR = new THREE.Color(0x7a1010);
+const FIRE_COLOR = new THREE.Color(0xff6a00);
+const NO_EMISSIVE = new THREE.Color(0x000000);
+
+function updateZombie(zb, dt, daylight) {
+  if (zb.dead) {
+    zb.deathT += dt;
+    zb.group.rotation.z = Math.min(Math.PI / 2, zb.deathT * 4);
+    zb.group.position.y = zb.pos.y + Math.min(0.5, zb.deathT * 2);
+    if (zb.deathT > 1.2) removeZombie(zb);
+    return;
+  }
+
+  // 日光で燃える
+  zb.burning = daylight > 0.12 && skyExposed(zb.pos.x, zb.pos.y, zb.pos.z);
+  if (zb.burning) {
+    zb.hp -= 2 * dt;
+    if (zb.hp <= 0) { zb.dead = true; zb.deathT = 0; return; }
+  }
+
+  const toPlayer = new THREE.Vector2(player.pos.x - zb.pos.x, player.pos.z - zb.pos.z);
+  const dist = toPlayer.length();
+  if (dist > 60 || zb.pos.y < -10) { removeZombie(zb); return; }
+
+  let moveX = 0, moveZ = 0;
+  const hunting = gameMode === 'survival' && !player.dead && dist < 24;
+  if (hunting) {
+    if (dist > 0.01) { moveX = toPlayer.x / dist; moveZ = toPlayer.y / dist; }
+    zb.yaw = Math.atan2(moveX, moveZ);
+  } else {
+    zb.wanderT -= dt;
+    if (zb.wanderT <= 0) {
+      zb.wanderT = 2 + Math.random() * 3;
+      if (Math.random() < 0.6) zb.wander.set(Math.random() - 0.5, Math.random() - 0.5).normalize();
+      else zb.wander.set(0, 0);
+    }
+    moveX = zb.wander.x; moveZ = zb.wander.y;
+    if (moveX || moveZ) zb.yaw = Math.atan2(moveX, moveZ);
+  }
+  const speed = hunting ? ZOMBIE.speed : ZOMBIE.speed * 0.5;
+  const moving = (moveX !== 0 || moveZ !== 0);
+
+  // 移動 + 衝突 (壁に当たったら自動ジャンプ)
+  const decay = Math.max(0, 1 - 6 * dt);
+  zb.vel.x = zb.vel.x * decay + moveX * speed;
+  zb.vel.z = zb.vel.z * decay + moveZ * speed;
+  zb.vel.y += GRAVITY * dt;
+
+  let blocked = false;
+  const tryMove = (axis, delta) => {
+    const next = zb.pos.clone();
+    next[axis] += delta;
+    if (!collides(world, next, ZOMBIE.radius, ZOMBIE.height)) {
+      zb.pos[axis] = next[axis];
+    } else if (axis === 'y') {
+      if (delta < 0) zb.onGround = true;
+      zb.vel.y = 0;
+    } else {
+      blocked = true;
+    }
+  };
+  zb.onGround = false;
+  tryMove('x', zb.vel.x * dt);
+  tryMove('z', zb.vel.z * dt);
+  const wasOnGround = zb.onGround;
+  tryMove('y', zb.vel.y * dt);
+  if (blocked && (zb.onGround || wasOnGround) && moving) zb.vel.y = JUMP_V * 0.8;
+  zb.vel.x *= 0.9; zb.vel.z *= 0.9;
+
+  // 攻撃
+  zb.attackCd -= dt;
+  if (hunting && dist < ZOMBIE.reach && Math.abs(player.pos.y - zb.pos.y) < 2 && zb.attackCd <= 0) {
+    zb.attackCd = 1.0;
+    zb.swing = 0.35;
+    damagePlayer(ZOMBIE.damage, zb.pos);
+  }
+
+  // 見た目
+  zb.walkT += dt * (moving ? 8 : 0);
+  const s = Math.sin(zb.walkT) * 0.6 * (moving ? 1 : 0);
+  zb.parts.legL.rotation.x = s;
+  zb.parts.legR.rotation.x = -s;
+  zb.swing = Math.max(0, zb.swing - dt);
+  const armLift = -Math.PI / 2 - zb.swing * 2;
+  zb.parts.armL.rotation.x = armLift + Math.sin(zb.walkT * 0.5) * 0.08;
+  zb.parts.armR.rotation.x = armLift - Math.sin(zb.walkT * 0.5) * 0.08;
+  zb.hurtT = Math.max(0, zb.hurtT - dt);
+  const emissive = zb.hurtT > 0 ? HURT_COLOR : zb.burning ? FIRE_COLOR : NO_EMISSIVE;
+  const flicker = zb.burning ? 0.5 + Math.random() * 0.5 : 1;
+  for (const m of zb.mats) { m.emissive.copy(emissive).multiplyScalar(flicker); }
+
+  zb.group.position.copy(zb.pos);
+  zb.group.rotation.y = zb.yaw;
+}
+
+window.__kota = { player, zombies, spawnZombie };
+
+function updateMobs(dt, daylight) {
+  spawnTimer -= dt;
+  if (spawnTimer <= 0) {
+    spawnTimer = 1.5;
+    if (daylight <= 0 && playing) trySpawnZombies();
+  }
+  for (const zb of [...zombies]) updateZombie(zb, dt, daylight);
 }
 
 // ---------------------------------------------------------------------------
@@ -646,7 +976,7 @@ document.addEventListener('pointerlockchange', () => {
   if (pointerLocked) {
     dragLook = false;
     hint.hidden = true;
-  } else if (playing && !dragLook) {
+  } else if (playing && !dragLook && !player.dead) {
     stopGame();
   }
 });
@@ -665,7 +995,7 @@ document.addEventListener('mousemove', e => {
   } else if (dragLook && dragging) {
     rotateView(e.movementX, e.movementY, 0.004);
     dragMoved += Math.abs(e.movementX) + Math.abs(e.movementY);
-    if (dragMoved > 6) player.mining = false;
+    if (dragMoved > 6) { player.mining = false; mineHeld = false; }
   }
 });
 
@@ -707,7 +1037,7 @@ canvas.addEventListener('mousedown', e => {
     dragging = true;
     dragMoved = 0;
   }
-  if (e.button === 0) startMining(aimedBlock());
+  if (e.button === 0) mineHeld = true;
   else if (e.button === 2) placeBlock(aimedBlock());
 });
 
@@ -793,7 +1123,7 @@ function holdButton(id, onDown, onUp) {
 
 holdButton('btnJump', () => { keys['Space'] = true; }, () => { keys['Space'] = false; });
 holdButton('btnDown', () => { keys['ShiftLeft'] = true; }, () => { keys['ShiftLeft'] = false; });
-holdButton('btnMine', () => { mineHeld = true; startMining(aimedBlock()); }, () => { mineHeld = false; player.mining = false; });
+holdButton('btnMine', () => { mineHeld = true; }, () => { mineHeld = false; player.mining = false; });
 holdButton('btnPlace', () => placeBlock(aimedBlock()));
 holdButton('btnFly', () => { player.flying = !player.flying; });
 holdButton('btnMenu', () => stopGame());
@@ -801,6 +1131,7 @@ holdButton('btnMenu', () => stopGame());
 window.addEventListener('mouseup', e => {
   if (e.button === 0) {
     player.mining = false;
+    mineHeld = false;
     dragging = false;
   }
 });
@@ -890,7 +1221,8 @@ const SPRINT = 8;
 const FLY_SPEED = 12;
 
 let last = performance.now();
-let gameTime = DAY_NIGHT_CYCLE * 0.3; // 朝からスタート
+const startFraction = parseFloat(new URLSearchParams(location.search).get('time'));
+let gameTime = DAY_NIGHT_CYCLE * (Number.isFinite(startFraction) ? startFraction : 0.3); // 既定は朝
 const coords = document.getElementById('coords');
 const mineBar = document.getElementById('mineBar');
 const mineFill = document.getElementById('mineFill');
@@ -906,29 +1238,45 @@ function getMiningTime(blockId) {
 function update(dt) {
   gameTime += dt;
 
-  // 昼夜サイクル更新 (空の色・太陽の位置と色・雲の流れ・水面の揺らぎ)
-  const skyColor = getSkyColor(gameTime);
-  scene.background = skyColor;
-  scene.fog.color = skyColor;
-
+  // 昼夜サイクル更新 (太陽の高さ → 空の色・光・雲の流れ・水面の揺らぎ)
   const dayT = (gameTime % DAY_NIGHT_CYCLE) / DAY_NIGHT_CYCLE;
   const sunAngle = (dayT - 0.125) * Math.PI * 2;
   const elev = Math.sin(sunAngle);
   const daylight = Math.max(0, elev);
-  sun.position.set(
-    WORLD_SIZE / 2 + Math.cos(sunAngle) * 140,
-    SEA_LEVEL + elev * 140,
-    WORLD_SIZE / 2 + 50
-  );
-  sun.intensity = 0.08 + daylight * 1.5;
+  const skyColor = getSkyColor(elev);
+  scene.background = skyColor;
+  scene.fog.color = skyColor;
+
+  const sx = Math.cos(sunAngle) * 140, sy = elev * 140;
+  sun.position.set(WORLD_SIZE / 2 + sx, SEA_LEVEL + sy, WORLD_SIZE / 2 + 50);
+  sun.intensity = daylight * 1.5;
   sun.color.lerpColors(SUN_LOW, SUN_HIGH, Math.min(1, daylight * 2.5));
   sun.castShadow = elev > 0.04;
-  hemi.color.copy(skyColor);
-  hemi.intensity = 0.25 + daylight * 0.55;
+  moon.position.set(WORLD_SIZE / 2 - sx, SEA_LEVEL - sy, WORLD_SIZE / 2 - 30);
+  moon.intensity = Math.max(0, -elev) * 0.35;
+  hemi.color.lerpColors(NIGHT_HEMI, skyColor, Math.min(1, Math.max(0, elev + 0.25) * 2));
+  hemi.intensity = 0.3 + daylight * 0.5;
   scene.fog.near = 30 + daylight * 20;
 
   cloudGroup.position.x = (gameTime * 0.7) % CLOUD_SPAN;
   waterMat.opacity = 0.66 + 0.06 * Math.sin(gameTime * 1.7);
+
+  // 体力まわりのタイマー
+  player.invuln = Math.max(0, player.invuln - dt);
+  player.attackCd = Math.max(0, player.attackCd - dt);
+  player.sinceHurt += dt;
+  if (!player.dead && player.health < player.maxHealth && player.sinceHurt > 5) {
+    player.regenT += dt;
+    if (player.regenT >= 2) {
+      player.regenT = 0;
+      player.health = Math.min(player.maxHealth, player.health + 1);
+    }
+  }
+  hurtFlash = Math.max(0, hurtFlash - dt * 2.5);
+  hurtEl.style.opacity = hurtFlash * 0.7;
+  heartsEl.hidden = gameMode !== 'survival';
+  renderHearts();
+  player.knock.multiplyScalar(Math.max(0, 1 - 6 * dt));
 
   // カメラ向き
   camera.rotation.order = 'YXZ';
@@ -947,6 +1295,7 @@ function update(dt) {
   dz += forward.z * -joy.y + right.z * joy.x;
   const len = Math.hypot(dx, dz);
   if (len > 1) { dx /= len; dz /= len; }
+  if (player.dead) { dx = 0; dz = 0; }
 
   const speed = player.flying ? FLY_SPEED : (keys['ShiftLeft'] || keys['ShiftRight'] ? SPRINT : SPEED);
 
@@ -957,10 +1306,10 @@ function update(dt) {
     if (keys['Space']) player.vel.y =  speed;
     if (keys['ControlLeft'] || keys['ShiftLeft']) player.vel.y = -speed;
   } else {
-    player.vel.x = dx * speed;
-    player.vel.z = dz * speed;
+    player.vel.x = dx * speed + player.knock.x;
+    player.vel.z = dz * speed + player.knock.z;
     player.vel.y += GRAVITY * dt;
-    if (keys['Space'] && player.onGround) player.vel.y = JUMP_V;
+    if (keys['Space'] && player.onGround && !player.dead) player.vel.y = JUMP_V;
   }
 
   // 軸ごとに移動 + 衝突
@@ -981,23 +1330,40 @@ function update(dt) {
 
   tryMove('x', player.vel.x * dt);
   tryMove('z', player.vel.z * dt);
+  const vyBefore = player.vel.y;
   tryMove('y', player.vel.y * dt);
+
+  // 落下ダメージ (落下高さ - 3 ブロック分)
+  if (player.onGround && vyBefore < 0 && !player.flying) {
+    const fallHeight = vyBefore * vyBefore / (2 * -GRAVITY);
+    if (fallHeight > 3.5) damagePlayer(Math.floor(fallHeight - 3));
+  }
 
   // 落ちすぎ防止
   if (player.pos.y < -20) {
-    player.pos.set(WORLD_SIZE / 2, WORLD_HEIGHT, WORLD_SIZE / 2);
+    player.pos.copy(spawnPoint);
     player.vel.set(0, 0, 0);
   }
 
   // カメラ位置
-  camera.position.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
+  camera.position.set(player.pos.x, player.pos.y + (player.dead ? 0.6 : EYE_HEIGHT), player.pos.z);
 
-  // 採掘処理
+  // モブ更新
+  updateMobs(dt, elev);
+
+  // 採掘 / 攻撃
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
   const hit = raycast(world, camera.position, dir, 6);
 
-  if (mineHeld && !player.mining) startMining(hit);
+  if (mineHeld && !player.mining && !player.dead) {
+    const zb = mobInCrosshair();
+    if (zb) {
+      if (player.attackCd <= 0) attackMob(zb);
+    } else {
+      startMining(hit);
+    }
+  }
 
   let mineProgress = 0;
   if (player.mining && player.miningTarget) {
@@ -1040,7 +1406,7 @@ function update(dt) {
   coords.textContent =
     `X:${player.pos.x.toFixed(1)}  Y:${player.pos.y.toFixed(1)}  Z:${player.pos.z.toFixed(1)}  ` +
     `Time: ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}  ` +
-    `${player.flying ? '[飛行]' : ''}`;
+    `撃破:${player.kills}  ${player.flying ? '[飛行]' : ''}`;
 }
 
 function frame(now) {

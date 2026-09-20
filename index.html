@@ -8,13 +8,23 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div id="hurt"></div>
   <div id="crosshair">+</div>
   <div id="mineBar" hidden><div id="mineFill"></div></div>
-  <div id="hint" hidden>ドラッグで視点移動 / 長押しで採掘 / Esc でメニュー</div>
+  <div id="hint" hidden>ドラッグで視点移動 / 長押しで採掘・攻撃 / Esc でメニュー</div>
 
   <div id="hud">
+    <div id="hearts"></div>
     <div id="hotbar"></div>
     <div id="coords"></div>
+  </div>
+
+  <div id="deathOverlay" class="hidden">
+    <div class="panel">
+      <h1>死んでしまった！</h1>
+      <p class="subtitle">スポーン地点からやり直せます</p>
+      <button id="respawnBtn">リスポーン</button>
+    </div>
   </div>
 
   <div id="touchUI">
@@ -39,7 +49,7 @@
         <li><b>Space</b> : ジャンプ</li>
         <li><b>Shift</b> : ダッシュ</li>
         <li><b>マウス</b> : 視点操作</li>
-        <li><b>左クリック</b> : ブロック破壊</li>
+        <li><b>左クリック</b> : ブロック破壊 / 攻撃</li>
         <li><b>右クリック</b> : ブロック設置</li>
         <li><b>1〜6</b> : ブロック選択</li>
         <li><b>T</b> : ツール切替</li>
@@ -48,6 +58,7 @@
         <li><b>Esc</b> : ポインター解除</li>
         <li><b>タブレット</b> : 左スティック移動 / 画面ドラッグ視点 / 右ボタン操作</li>
       </ul>
+      <p class="warn">夜になるとゾンビが湧いて襲ってきます。朝日を浴びると燃えて倒れます。高い所からの落下にも注意！</p>
       <button id="startBtn">クリックしてスタート</button>
     </div>
   </div>

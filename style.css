@@ -235,7 +235,29 @@ body.touch #toolDisplay {
   z-index: 6;
 }
 
-#overlay {
+#hurt {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 140px rgba(200, 0, 0, 0.95);
+  opacity: 0;
+  z-index: 4;
+}
+
+#hearts {
+  display: flex;
+  gap: 1px;
+  font-size: 22px;
+  line-height: 1;
+  text-shadow: 0 0 2px #000, 1px 1px 0 #000, -1px -1px 0 #000;
+}
+
+.heart { color: #2a2a2a; }
+.heart.full { color: #e83a2f; }
+.heart.half { color: #e83a2f; opacity: 0.55; }
+.heart.empty { color: #2a2a2a; }
+
+#overlay, #deathOverlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.7);
@@ -245,7 +267,18 @@ body.touch #toolDisplay {
   z-index: 10;
 }
 
-#overlay.hidden { display: none; }
+#deathOverlay { background: rgba(120, 0, 0, 0.55); z-index: 11; }
+#deathOverlay .panel h1 { font-size: 20px; color: #ff6b5b; }
+#deathOverlay .panel { text-align: center; }
+
+#overlay.hidden, #deathOverlay.hidden { display: none; }
+
+.panel .warn {
+  color: #ffb27a;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
 
 .panel {
   background: #32373b;
@@ -295,7 +328,7 @@ body.touch #toolDisplay {
   font-weight: bold;
 }
 
-#startBtn {
+#startBtn, #respawnBtn {
   width: 100%;
   padding: 14px;
   background: linear-gradient(180deg, #4caf50 0%, #388e3c 100%);
@@ -311,12 +344,12 @@ body.touch #toolDisplay {
   box-shadow: 0 4px 0 #1a5e20, inset 0 -1px 0 rgba(0,0,0,0.3);
 }
 
-#startBtn:hover {
+#startBtn:hover, #respawnBtn:hover {
   background: linear-gradient(180deg, #5dbf61 0%, #43a047 100%);
   box-shadow: 0 4px 0 #2e7d32, inset 0 -1px 0 rgba(0,0,0,0.3);
 }
 
-#startBtn:active {
+#startBtn:active, #respawnBtn:active {
   transform: translateY(2px);
   box-shadow: 0 2px 0 #1a5e20, inset 0 -1px 0 rgba(0,0,0,0.3);
 }

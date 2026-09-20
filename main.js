@@ -1,19 +1,20 @@
 import * as THREE from 'three';
 
 // ---------------------------------------------------------------------------
-// ブロック定義
+// ブロック定義 (Minecraft 風の色合い)
 // ---------------------------------------------------------------------------
 const BLOCKS = {
   AIR:    { id: 0, name: 'Air',    color: 0x000000, solid: false },
-  GRASS:  { id: 1, name: '草',      color: 0x5eb24a, top: 0x6fd24a, side: 0x7a5a3a, solid: true },
-  DIRT:   { id: 2, name: '土',      color: 0x8b5a2b, solid: true },
-  STONE:  { id: 3, name: '石',      color: 0x888888, solid: true },
-  WOOD:   { id: 4, name: '木',      color: 0x6b4423, solid: true },
-  LEAVES: { id: 5, name: '葉',      color: 0x2d7a2d, solid: true },
-  SAND:   { id: 6, name: '砂',      color: 0xe6d28a, solid: true },
+  GRASS:  { id: 1, name: '草',      color: 0x7fb238, top: 0x7fb238, side: 0x8f7853, solid: true, hardness: 0.6 },
+  DIRT:   { id: 2, name: '土',      color: 0x8f7853, solid: true, hardness: 0.5 },
+  STONE:  { id: 3, name: '石',      color: 0x7e7e7e, solid: true, hardness: 1.5 },
+  WOOD:   { id: 4, name: '原木',    color: 0x6b4423, side: 0x634521, top: 0x7f5e2e, solid: true, hardness: 2.0 },
+  LEAVES: { id: 5, name: '葉',      color: 0x58a020, solid: true, hardness: 0.2, transparent: true },
+  SAND:   { id: 6, name: '砂',      color: 0xdcc48e, solid: true, hardness: 0.5 },
   WATER:  { id: 7, name: '水',      color: 0x3a6dd9, solid: false, transparent: true },
-  PLANK:  { id: 8, name: '板',      color: 0xc29866, solid: true },
-  BRICK:  { id: 9, name: 'レンガ',  color: 0xaa4a33, solid: true },
+  PLANK:  { id: 8, name: '板',      color: 0xc29866, solid: true, hardness: 2.0 },
+  BRICK:  { id: 9, name: 'レンガ',  color: 0xaa4a33, solid: true, hardness: 1.8 },
+  COBBLESTONE: { id: 10, name: '丸石', color: 0x696969, solid: true, hardness: 2.0 },
 };
 
 const BLOCK_BY_ID = Object.values(BLOCKS).reduce((acc, b) => {
@@ -21,7 +22,19 @@ const BLOCK_BY_ID = Object.values(BLOCKS).reduce((acc, b) => {
   return acc;
 }, {});
 
-const PLACEABLE = [BLOCKS.GRASS, BLOCKS.DIRT, BLOCKS.STONE, BLOCKS.WOOD, BLOCKS.PLANK, BLOCKS.BRICK];
+const PLACEABLE = [BLOCKS.DIRT, BLOCKS.GRASS, BLOCKS.STONE, BLOCKS.WOOD, BLOCKS.PLANK, BLOCKS.BRICK];
+
+// ---------------------------------------------------------------------------
+// ツール定義
+// ---------------------------------------------------------------------------
+const TOOLS = {
+  HAND: { id: 0, name: '素手', speed: 1.0 },
+  WOODEN_PICKAXE: { id: 1, name: '木のツルハシ', speed: 1.2 },
+  STONE_PICKAXE: { id: 2, name: '石のツルハシ', speed: 1.8 },
+  IRON_PICKAXE: { id: 3, name: '鉄のツルハシ', speed: 2.5 },
+};
+
+const TOOL_NAMES = Object.values(TOOLS).map(t => t.name);
 
 // ---------------------------------------------------------------------------
 // ワールド設定
@@ -110,6 +123,16 @@ function generateTerrain(world, seed = 1) {
       // 水で海を埋める
       for (let y = h + 1; y < SEA_LEVEL; y++) {
         setBlock(world, x, y, z, BLOCKS.WATER.id);
+      }
+    }
+  }
+  // 石も生成
+  for (let x = 0; x < WORLD_SIZE; x++) {
+    for (let z = 0; z < WORLD_SIZE; z++) {
+      for (let y = 1; y < 10; y++) {
+        if (Math.random() < 0.05 && getBlock(world, x, y, z) === BLOCKS.STONE.id) {
+          setBlock(world, x, y, z, BLOCKS.COBBLESTONE.id);
+        }
       }
     }
   }
@@ -290,6 +313,28 @@ function raycast(world, origin, direction, maxDist = 8) {
 }
 
 // ---------------------------------------------------------------------------
+// 昼夜サイクル
+// ---------------------------------------------------------------------------
+const DAY_NIGHT_CYCLE = 120; // 秒単位
+function getSkyColor(time) {
+  const t = (time % DAY_NIGHT_CYCLE) / DAY_NIGHT_CYCLE;
+  let color;
+  if (t < 0.25) { // 夜から朝
+    const x = t * 4;
+    color = new THREE.Color().lerpColors(new THREE.Color(0x1a1a2e), new THREE.Color(0x87ceeb), x);
+  } else if (t < 0.5) { // 昼
+    color = new THREE.Color(0x87ceeb);
+  } else if (t < 0.75) { // 昼から夜
+    const x = (t - 0.5) * 4;
+    color = new THREE.Color().lerpColors(new THREE.Color(0x87ceeb), new THREE.Color(0xff6b35), x);
+  } else { // 夜
+    const x = (t - 0.75) * 4;
+    color = new THREE.Color().lerpColors(new THREE.Color(0xff6b35), new THREE.Color(0x1a1a2e), x);
+  }
+  return color;
+}
+
+// ---------------------------------------------------------------------------
 // ゲーム初期化
 // ---------------------------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -298,8 +343,9 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.Fog(0x87ceeb, 40, 120);
+const initialSkyColor = getSkyColor(0);
+scene.background = initialSkyColor;
+scene.fog = new THREE.Fog(initialSkyColor, 40, 120);
 
 const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 500);
 
@@ -359,6 +405,12 @@ const player = {
   pitch: 0,
   onGround: false,
   flying: false,
+  selectedTool: 0,
+  mining: false,
+  miningStart: 0,
+  miningTarget: null,
+  health: 20,
+  hunger: 20,
 };
 
 // スポーン地点を地面に合わせる
@@ -380,6 +432,8 @@ const keys = Object.create(null);
 window.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'KeyF') player.flying = !player.flying;
+  if (e.code === 'KeyC') cycleGameMode();
+  if (e.code === 'KeyT') cycleTool();
   if (e.code >= 'Digit1' && e.code <= 'Digit9') {
     const i = parseInt(e.code.slice(5), 10) - 1;
     if (i < PLACEABLE.length) selectSlot(i);
@@ -417,9 +471,10 @@ canvas.addEventListener('mousedown', e => {
   if (!hit) return;
 
   if (e.button === 0) {
-    // 破壊
-    setBlock(world, hit.x, hit.y, hit.z, BLOCKS.AIR.id);
-    rebuildMesh();
+    // 採掘開始
+    player.mining = true;
+    player.miningStart = performance.now();
+    player.miningTarget = hit;
   } else if (e.button === 2) {
     // 設置
     if (!hit.face) return;
@@ -430,7 +485,6 @@ canvas.addEventListener('mousedown', e => {
     if (getBlock(world, px, py, pz) !== BLOCKS.AIR.id) return;
 
     const newPos = { x: player.pos.x, y: player.pos.y, z: player.pos.z };
-    // 自分に重ならないか簡易チェック
     const pb = { minX: px, minY: py, minZ: pz, maxX: px+1, maxY: py+1, maxZ: pz+1 };
     const overlap =
       newPos.x + PLAYER_RADIUS > pb.minX && newPos.x - PLAYER_RADIUS < pb.maxX &&
@@ -442,6 +496,11 @@ canvas.addEventListener('mousedown', e => {
     rebuildMesh();
   }
 });
+
+canvas.addEventListener('mouseup', e => {
+  if (e.button === 0) player.mining = false;
+});
+
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
 window.addEventListener('wheel', e => {
@@ -450,10 +509,12 @@ window.addEventListener('wheel', e => {
 }, { passive: true });
 
 // ---------------------------------------------------------------------------
-// ホットバー UI
+// ホットバー UI & ツール表示
 // ---------------------------------------------------------------------------
 let selected = 0;
 const hotbar = document.getElementById('hotbar');
+let gameMode = 'survival'; // survival or creative
+
 PLACEABLE.forEach((b, i) => {
   const slot = document.createElement('div');
   slot.className = 'slot';
@@ -472,6 +533,46 @@ function selectSlot(i) {
 }
 selectSlot(0);
 
+// ツール表示
+const toolDisplay = document.createElement('div');
+toolDisplay.id = 'toolDisplay';
+toolDisplay.style.cssText = `
+  position: absolute;
+  bottom: 120px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 10px 15px;
+  border-radius: 5px;
+  font-family: monospace;
+  font-size: 12px;
+`;
+document.body.appendChild(toolDisplay);
+
+// ゲームモード表示
+const modeDisplay = document.createElement('div');
+modeDisplay.id = 'modeDisplay';
+modeDisplay.style.cssText = `
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 10px 15px;
+  border-radius: 5px;
+  font-family: monospace;
+  font-size: 12px;
+`;
+document.body.appendChild(modeDisplay);
+
+function cycleTool() {
+  player.selectedTool = (player.selectedTool + 1) % Object.keys(TOOLS).length;
+}
+
+function cycleGameMode() {
+  gameMode = gameMode === 'survival' ? 'creative' : 'survival';
+}
+
 // ---------------------------------------------------------------------------
 // メインループ
 // ---------------------------------------------------------------------------
@@ -482,9 +583,25 @@ const SPRINT = 8;
 const FLY_SPEED = 12;
 
 let last = performance.now();
+let gameTime = 0;
 const coords = document.getElementById('coords');
 
+function getMiningTime(blockId) {
+  const block = BLOCK_BY_ID[blockId];
+  const tool = Object.values(TOOLS)[player.selectedTool];
+  const hardness = block ? (block.hardness || 0.5) : 0;
+  const toolSpeed = tool.speed || 1;
+  return Math.max(0.1, hardness / toolSpeed);
+}
+
 function update(dt) {
+  gameTime += dt;
+
+  // 昼夜サイクル更新
+  const skyColor = getSkyColor(gameTime);
+  scene.background = skyColor;
+  scene.fog.color = skyColor;
+
   // カメラ向き
   camera.rotation.order = 'YXZ';
   camera.rotation.y = player.yaw;
@@ -500,6 +617,7 @@ function update(dt) {
   if (keys['KeyA']) { dx -= right.x;   dz -= right.z; }
   const len = Math.hypot(dx, dz);
   if (len > 0) { dx /= len; dz /= len; }
+
   const speed = player.flying ? FLY_SPEED : (keys['ShiftLeft'] || keys['ShiftRight'] ? SPRINT : SPEED);
 
   if (player.flying) {
@@ -528,7 +646,6 @@ function update(dt) {
         if (delta < 0) player.onGround = true;
         player.vel.y = 0;
       }
-      // 軽くオフセットしてめり込み回避
     }
   };
 
@@ -545,10 +662,28 @@ function update(dt) {
   // カメラ位置
   camera.position.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
 
-  // ハイライト
+  // 採掘処理
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
   const hit = raycast(world, camera.position, dir, 6);
+
+  if (player.mining && player.miningTarget) {
+    const targetBlock = getBlock(world, player.miningTarget.x, player.miningTarget.y, player.miningTarget.z);
+    if (hit && hit.x === player.miningTarget.x && hit.y === player.miningTarget.y && hit.z === player.miningTarget.z && targetBlock !== BLOCKS.AIR.id) {
+      const elapsed = (performance.now() - player.miningStart) / 1000;
+      const miningTime = getMiningTime(targetBlock);
+      if (elapsed >= miningTime) {
+        setBlock(world, player.miningTarget.x, player.miningTarget.y, player.miningTarget.z, BLOCKS.AIR.id);
+        rebuildMesh();
+        player.mining = false;
+      }
+      highlight.opacity = 1 - (elapsed / miningTime);
+    } else {
+      player.mining = false;
+    }
+  }
+
+  // ハイライト
   if (hit) {
     highlight.visible = true;
     highlight.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
@@ -556,8 +691,18 @@ function update(dt) {
     highlight.visible = false;
   }
 
+  // UI更新
+  const tool = Object.values(TOOLS)[player.selectedTool];
+  toolDisplay.textContent = `Tool: ${tool.name} (T)`;
+  modeDisplay.textContent = `Mode: ${gameMode} (C)`;
+
+  const time = Math.floor((gameTime / DAY_NIGHT_CYCLE) * 24000) % 24000;
+  const hours = Math.floor(time / 1000);
+  const minutes = Math.floor((time % 1000) / 16.67);
+
   coords.textContent =
     `X:${player.pos.x.toFixed(1)}  Y:${player.pos.y.toFixed(1)}  Z:${player.pos.z.toFixed(1)}  ` +
+    `Time: ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}  ` +
     `${player.flying ? '[飛行]' : ''}`;
 }
 

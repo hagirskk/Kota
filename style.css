@@ -76,6 +76,7 @@ canvas { display: block; outline: none; }
 }
 
 #hotbar {
+  pointer-events: auto;
   display: flex;
   gap: 2px;
   background: rgba(0, 0, 0, 0.6);
@@ -135,6 +136,103 @@ canvas { display: block; outline: none; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+#touchUI { display: none; }
+
+body.touch #touchUI { display: block; }
+
+body.touch #hud { padding-bottom: 150px; }
+
+body.touch #coords { font-size: 11px; }
+
+body.touch #toolDisplay {
+  bottom: auto !important;
+  top: calc(60px + env(safe-area-inset-top, 0px)) !important;
+}
+
+.panel {
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  margin: 16px;
+}
+
+#touchUI > *, #touchUI .tbtn {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#joy {
+  position: fixed;
+  left: 32px;
+  bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 3px solid rgba(255, 255, 255, 0.5);
+  z-index: 6;
+}
+
+#joyKnob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  border: 3px solid #1a1a1a;
+  pointer-events: none;
+}
+
+#actions {
+  position: fixed;
+  right: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  display: grid;
+  grid-template-columns: 76px 76px;
+  gap: 10px;
+  z-index: 6;
+}
+
+.tbtn {
+  height: 76px;
+  border: 3px solid #1a1a1a;
+  background: rgba(60, 60, 60, 0.8);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: bold;
+  text-shadow: 1px 1px 0 #000;
+  box-shadow: 0 4px 0 #1a1a1a;
+  padding: 0 4px;
+}
+
+.tbtn.small {
+  height: 44px;
+  font-size: 11px;
+}
+
+.tbtn.down {
+  background: rgba(127, 178, 56, 0.9);
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #1a1a1a;
+}
+
+#btnMine { background: rgba(170, 74, 51, 0.85); }
+#btnPlace { background: rgba(58, 109, 217, 0.85); }
+#btnJump { grid-column: 1 / -1; }
+
+#btnMenu {
+  position: fixed;
+  top: calc(16px + env(safe-area-inset-top, 0px));
+  left: 16px;
+  width: 90px;
+  z-index: 6;
 }
 
 #overlay {

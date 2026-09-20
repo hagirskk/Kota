@@ -444,6 +444,7 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
 // ポインターロックが使えない環境 (埋め込み iframe など) ではドラッグで視点操作する
+const isTouch = window.matchMedia('(pointer: coarse)').matches;
 let pointerLocked = false;
 let dragLook = false;
 let playing = false;
@@ -457,6 +458,11 @@ const hint = document.getElementById('hint');
 function startGame() {
   playing = true;
   overlay.classList.add('hidden');
+  if (isTouch) {
+    dragLook = true;
+    document.body.classList.add('touch');
+    return;
+  }
   canvas.focus();
   try {
     const p = canvas.requestPointerLock();
@@ -474,7 +480,9 @@ function stopGame() {
   playing = false;
   dragging = false;
   player.mining = false;
+  mineHeld = false;
   hint.hidden = true;
+  document.body.classList.remove('touch');
   overlay.classList.remove('hidden');
 }
 
@@ -508,44 +516,134 @@ document.addEventListener('mousemove', e => {
   }
 });
 
+function aimedBlock() {
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  return raycast(world, camera.position, dir, 6);
+}
+
+function startMining(hit) {
+  if (!hit) return;
+  player.mining = true;
+  player.miningStart = performance.now();
+  player.miningTarget = hit;
+}
+
+function placeBlock(hit) {
+  if (!hit || !hit.face) return;
+  const px = hit.x + hit.face[0];
+  const py = hit.y + hit.face[1];
+  const pz = hit.z + hit.face[2];
+  if (!inBounds(px, py, pz)) return;
+  if (getBlock(world, px, py, pz) !== BLOCKS.AIR.id) return;
+
+  const p = player.pos;
+  const overlap =
+    p.x + PLAYER_RADIUS > px && p.x - PLAYER_RADIUS < px + 1 &&
+    p.y + PLAYER_HEIGHT > py && p.y < py + 1 &&
+    p.z + PLAYER_RADIUS > pz && p.z - PLAYER_RADIUS < pz + 1;
+  if (overlap) return;
+
+  setBlock(world, px, py, pz, PLACEABLE[selected].id);
+  rebuildMesh();
+}
+
 canvas.addEventListener('mousedown', e => {
-  if (!playing) return;
+  if (!playing || isTouch) return;
   if (dragLook && e.button === 0) {
     dragging = true;
     dragMoved = 0;
   }
-  const dir = new THREE.Vector3();
-  camera.getWorldDirection(dir);
-  const origin = camera.position;
-  const hit = raycast(world, origin, dir, 6);
-  if (!hit) return;
-
-  if (e.button === 0) {
-    // 採掘開始
-    player.mining = true;
-    player.miningStart = performance.now();
-    player.miningTarget = hit;
-  } else if (e.button === 2) {
-    // 設置
-    if (!hit.face) return;
-    const px = hit.x + hit.face[0];
-    const py = hit.y + hit.face[1];
-    const pz = hit.z + hit.face[2];
-    if (!inBounds(px, py, pz)) return;
-    if (getBlock(world, px, py, pz) !== BLOCKS.AIR.id) return;
-
-    const newPos = { x: player.pos.x, y: player.pos.y, z: player.pos.z };
-    const pb = { minX: px, minY: py, minZ: pz, maxX: px+1, maxY: py+1, maxZ: pz+1 };
-    const overlap =
-      newPos.x + PLAYER_RADIUS > pb.minX && newPos.x - PLAYER_RADIUS < pb.maxX &&
-      newPos.y + PLAYER_HEIGHT > pb.minY && newPos.y < pb.maxY &&
-      newPos.z + PLAYER_RADIUS > pb.minZ && newPos.z - PLAYER_RADIUS < pb.maxZ;
-    if (overlap) return;
-
-    setBlock(world, px, py, pz, PLACEABLE[selected].id);
-    rebuildMesh();
-  }
+  if (e.button === 0) startMining(aimedBlock());
+  else if (e.button === 2) placeBlock(aimedBlock());
 });
+
+// ---------------------------------------------------------------------------
+// タッチ操作 (タブレット / スマホ)
+// ---------------------------------------------------------------------------
+const joy = { x: 0, y: 0 };
+let mineHeld = false;
+const joyBase = document.getElementById('joy');
+const joyKnob = document.getElementById('joyKnob');
+const JOY_RADIUS = 40;
+
+let joyTouchId = null;
+let lookTouchId = null;
+let lookLast = { x: 0, y: 0 };
+
+joyBase.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (joyTouchId !== null) return;
+  const t = e.changedTouches[0];
+  joyTouchId = t.identifier;
+  updateJoy(t);
+}, { passive: false });
+
+joyBase.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === joyTouchId) updateJoy(t);
+}, { passive: false });
+
+const endJoy = e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === joyTouchId) {
+      joyTouchId = null;
+      joy.x = 0; joy.y = 0;
+      joyKnob.style.transform = 'translate(0px, 0px)';
+    }
+  }
+};
+joyBase.addEventListener('touchend', endJoy);
+joyBase.addEventListener('touchcancel', endJoy);
+
+function updateJoy(t) {
+  const r = joyBase.getBoundingClientRect();
+  let dx = t.clientX - (r.left + r.width / 2);
+  let dy = t.clientY - (r.top + r.height / 2);
+  const len = Math.hypot(dx, dy);
+  if (len > JOY_RADIUS) { dx *= JOY_RADIUS / len; dy *= JOY_RADIUS / len; }
+  joy.x = dx / JOY_RADIUS;
+  joy.y = dy / JOY_RADIUS;
+  joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+}
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (!playing || lookTouchId !== null) return;
+  const t = e.changedTouches[0];
+  lookTouchId = t.identifier;
+  lookLast = { x: t.clientX, y: t.clientY };
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier !== lookTouchId) continue;
+    rotateView(t.clientX - lookLast.x, t.clientY - lookLast.y, 0.005);
+    lookLast = { x: t.clientX, y: t.clientY };
+  }
+}, { passive: false });
+
+const endLook = e => {
+  for (const t of e.changedTouches) if (t.identifier === lookTouchId) lookTouchId = null;
+};
+canvas.addEventListener('touchend', endLook);
+canvas.addEventListener('touchcancel', endLook);
+
+function holdButton(id, onDown, onUp) {
+  const el = document.getElementById(id);
+  el.addEventListener('touchstart', e => { e.preventDefault(); el.classList.add('down'); onDown(); }, { passive: false });
+  const up = e => { e.preventDefault(); el.classList.remove('down'); if (onUp) onUp(); };
+  el.addEventListener('touchend', up, { passive: false });
+  el.addEventListener('touchcancel', up, { passive: false });
+}
+
+holdButton('btnJump', () => { keys['Space'] = true; }, () => { keys['Space'] = false; });
+holdButton('btnDown', () => { keys['ShiftLeft'] = true; }, () => { keys['ShiftLeft'] = false; });
+holdButton('btnMine', () => { mineHeld = true; startMining(aimedBlock()); }, () => { mineHeld = false; player.mining = false; });
+holdButton('btnPlace', () => placeBlock(aimedBlock()));
+holdButton('btnFly', () => { player.flying = !player.flying; });
+holdButton('btnMenu', () => stopGame());
 
 window.addEventListener('mouseup', e => {
   if (e.button === 0) {
@@ -626,6 +724,9 @@ function cycleGameMode() {
   gameMode = gameMode === 'survival' ? 'creative' : 'survival';
 }
 
+toolDisplay.addEventListener('click', cycleTool);
+modeDisplay.addEventListener('click', cycleGameMode);
+
 // ---------------------------------------------------------------------------
 // メインループ
 // ---------------------------------------------------------------------------
@@ -670,8 +771,10 @@ function update(dt) {
   if (keys['KeyS']) { dx -= forward.x; dz -= forward.z; }
   if (keys['KeyD']) { dx += right.x;   dz += right.z; }
   if (keys['KeyA']) { dx -= right.x;   dz -= right.z; }
+  dx += forward.x * -joy.y + right.x * joy.x;
+  dz += forward.z * -joy.y + right.z * joy.x;
   const len = Math.hypot(dx, dz);
-  if (len > 0) { dx /= len; dz /= len; }
+  if (len > 1) { dx /= len; dz /= len; }
 
   const speed = player.flying ? FLY_SPEED : (keys['ShiftLeft'] || keys['ShiftRight'] ? SPRINT : SPEED);
 
@@ -721,6 +824,8 @@ function update(dt) {
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
   const hit = raycast(world, camera.position, dir, 6);
+
+  if (mineHeld && !player.mining) startMining(hit);
 
   let mineProgress = 0;
   if (player.mining && player.miningTarget) {

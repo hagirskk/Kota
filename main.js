@@ -490,7 +490,7 @@ for (let cx = 0; cx < CLOUD_SPAN / 4; cx++) {
 }
 const cloudGroup = new THREE.Group();
 const cloudGeo = new THREE.BoxGeometry(4, 2, 4);
-const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x777777, transparent: true, opacity: 0.85 });
 for (const offset of [0, -CLOUD_SPAN]) {
   const inst = new THREE.InstancedMesh(cloudGeo, cloudMat, cloudCells.length);
   const m = new THREE.Matrix4();

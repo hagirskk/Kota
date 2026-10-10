@@ -56,3 +56,14 @@ npx serve .
 - 半透明水、AABB 衝突判定、ジャンプ/飛行機能
 - 依存は Three.js (CDN) のみ、ビルド不要
 - 拡張可能なブロック/ツール定義システム
+
+## サーバーなしで遊ぶ
+
+`play.html` は Three.js を同梱した 1 ファイル版です。ダウンロードしてダブルクリックするだけで、ネットにつながっていなくても遊べます。
+
+`main.js` などを変更したら、次のコマンドで作り直します (esbuild と three@0.160.0 が必要)。
+
+```bash
+npm i --no-save esbuild three@0.160.0
+node tools/build-play.cjs
+```

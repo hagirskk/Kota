@@ -327,6 +327,20 @@ body.touch #toolDisplay {
 
 #craftClose { width: 100%; margin-top: 12px; }
 
+.boot {
+  color: #ffd36b;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.boot.error {
+  color: #fff;
+  background: #8a1f1f;
+  border: 2px solid #1a1a1a;
+  padding: 8px 10px;
+  line-height: 1.5;
+}
+
 .panel .note {
   color: #888;
   font-size: 11px;

@@ -534,7 +534,13 @@ function sunElevation(time) {
 // ---------------------------------------------------------------------------
 // ゲーム初期化
 // ---------------------------------------------------------------------------
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+} catch (e) {
+  window.__kotaFail && window.__kotaFail('この端末・ブラウザでは 3D 表示 (WebGL) が使えないため起動できません。別のブラウザ (Chrome / Safari の最新版) で開くか、ハードウェアアクセラレーションを有効にしてください。');
+  throw e;
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -1237,7 +1243,10 @@ canvas.tabIndex = 0;
 const overlay = document.getElementById('overlay');
 const hint = document.getElementById('hint');
 
+let lockRequestedAt = 0;
+
 function startGame() {
+  if (playing) return;
   playing = true;
   overlay.classList.add('hidden');
   if (isTouch) {
@@ -1246,6 +1255,7 @@ function startGame() {
     return;
   }
   canvas.focus();
+  lockRequestedAt = performance.now();
   try {
     const p = canvas.requestPointerLock();
     if (p && p.catch) p.catch(() => {});
@@ -1269,7 +1279,13 @@ function stopGame() {
   saveGame(true);
 }
 
-document.getElementById('startBtn').addEventListener('click', startGame);
+const startBtn = document.getElementById('startBtn');
+startBtn.addEventListener('click', startGame);
+// タッチ端末で click が届かない場合の保険
+startBtn.addEventListener('touchend', e => { e.preventDefault(); startGame(); }, { passive: false });
+document.addEventListener('pointerlockerror', () => {
+  if (playing) { dragLook = true; hint.hidden = false; }
+});
 
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === canvas;
@@ -1277,7 +1293,13 @@ document.addEventListener('pointerlockchange', () => {
     dragLook = false;
     hint.hidden = true;
   } else if (playing && !dragLook && !player.dead && !craftOpen) {
-    stopGame();
+    // ロック直後にすぐ外れる環境 (埋め込み表示など) ではドラッグ操作に切り替える
+    if (performance.now() - lockRequestedAt < 1500) {
+      dragLook = true;
+      hint.hidden = false;
+    } else {
+      stopGame();
+    }
   }
 });
 
@@ -1913,6 +1935,9 @@ document.getElementById('newWorldBtn').addEventListener('click', () => { newWorl
 updateContinueBtn();
 
 window.__kota = { player, zombies, spawnZombie, spawnMob, inventory, saveGame, loadGame, addItem, world, setBlock, rebuildMesh, BLOCKS };
+
+window.__kotaReady = true;
+document.getElementById('bootMsg').hidden = true;
 
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.05);

@@ -72,6 +72,7 @@
         <li><b>タブレット</b> : 左スティック移動 / 画面ドラッグ視点 / 右ボタン操作</li>
       </ul>
       <p class="warn">夜はゾンビとクリーパーが湧きます。松明の明かりの中には湧きません。クリーパーは近づくと爆発するので剣で早めに倒しましょう！</p>
+      <p id="bootMsg" class="boot">読み込み中…</p>
       <button id="startBtn">クリックしてスタート</button>
       <div class="btnrow">
         <button id="continueBtn" class="secondary" disabled>つづきから</button>
@@ -83,6 +84,27 @@
     </div>
   </div>
 
+  <script>
+    // 起動に失敗したとき、理由を画面に出す
+    window.__kotaFail = function (msg) {
+      var el = document.getElementById('bootMsg');
+      if (!el) return;
+      el.hidden = false;
+      el.className = 'boot error';
+      el.textContent = msg;
+    };
+    window.addEventListener('error', function (e) {
+      var el = document.getElementById('bootMsg');
+      if (window.__kotaReady || (el && el.className.indexOf('error') >= 0)) return;
+      window.__kotaFail('起動中にエラーが発生しました: ' + (e.message || e.error || '不明なエラー'));
+    });
+    document.addEventListener('click', function (e) {
+      if (e.target && e.target.id === 'startBtn' && !window.__kotaReady) {
+        var el = document.getElementById('bootMsg');
+        if (el && el.className.indexOf('error') < 0) el.textContent = 'まだ読み込み中です。数秒待ってからもう一度押してください。';
+      }
+    });
+  </script>
   <script type="importmap">
   {
     "imports": {

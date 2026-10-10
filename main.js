@@ -15,6 +15,7 @@ const BLOCKS = {
   PLANK:  { id: 8, name: '板',      color: 0xc29866, solid: true, hardness: 2.0 },
   BRICK:  { id: 9, name: 'レンガ',  color: 0xaa4a33, solid: true, hardness: 1.8 },
   COBBLESTONE: { id: 10, name: '丸石', color: 0x696969, solid: true, hardness: 2.0 },
+  TORCH:  { id: 11, name: '松明',    color: 0xffcc55, solid: false, hardness: 0.1, torch: true, light: 14 },
 };
 
 const BLOCK_BY_ID = Object.values(BLOCKS).reduce((acc, b) => {
@@ -22,7 +23,27 @@ const BLOCK_BY_ID = Object.values(BLOCKS).reduce((acc, b) => {
   return acc;
 }, {});
 
-const PLACEABLE = [BLOCKS.DIRT, BLOCKS.GRASS, BLOCKS.STONE, BLOCKS.WOOD, BLOCKS.PLANK, BLOCKS.BRICK];
+const PLACEABLE = [
+  BLOCKS.DIRT, BLOCKS.GRASS, BLOCKS.STONE, BLOCKS.COBBLESTONE, BLOCKS.SAND,
+  BLOCKS.WOOD, BLOCKS.PLANK, BLOCKS.BRICK, BLOCKS.LEAVES, BLOCKS.TORCH,
+];
+
+// 採掘したときに手に入るブロック
+const DROP_OF = {
+  [BLOCKS.GRASS.id]: BLOCKS.DIRT.id,
+  [BLOCKS.STONE.id]: BLOCKS.COBBLESTONE.id,
+  [BLOCKS.WATER.id]: null,
+};
+function dropOf(id) { return id in DROP_OF ? DROP_OF[id] : id; }
+
+// クラフトレシピ
+const RECIPES = [
+  { name: '板 ×4',     out: BLOCKS.PLANK.id,  n: 4, needs: [[BLOCKS.WOOD.id, 1]] },
+  { name: '松明 ×4',   out: BLOCKS.TORCH.id,  n: 4, needs: [[BLOCKS.PLANK.id, 1]] },
+  { name: 'レンガ ×1', out: BLOCKS.BRICK.id,  n: 1, needs: [[BLOCKS.COBBLESTONE.id, 2]] },
+  { name: '石 ×1',     out: BLOCKS.STONE.id,  n: 1, needs: [[BLOCKS.COBBLESTONE.id, 1], [BLOCKS.SAND.id, 1]] },
+  { name: '草 ×1',     out: BLOCKS.GRASS.id,  n: 1, needs: [[BLOCKS.DIRT.id, 2]] },
+];
 
 // ---------------------------------------------------------------------------
 // ツール定義
@@ -170,7 +191,7 @@ function generateTerrain(world, seed = 1) {
 // 列 = ブロック ID、行 = 0:上面 1:側面 2:底面
 // ---------------------------------------------------------------------------
 const TILE = 16;
-const ATLAS_COLS = 11;
+const ATLAS_COLS = 12;
 const ATLAS_ROWS = 3;
 
 function mulberry32(seed) {
@@ -253,6 +274,11 @@ function makeAtlas() {
   all(BLOCKS.PLANK.id, plank);
   all(BLOCKS.BRICK.id, brick);
   all(BLOCKS.COBBLESTONE.id, cobble);
+  const torchHead = () => scale(0xffe08a, jitter(0.1));
+  const torchSide = (x, y) => (y < 3 ? torchHead() : scale(0x7a5230, jitter(0.12)));
+  put(BLOCKS.TORCH.id, 0, torchHead);
+  put(BLOCKS.TORCH.id, 1, torchSide);
+  put(BLOCKS.TORCH.id, 2, () => scale(0x5a3a20, 1));
 
   const tex = new THREE.CanvasTexture(cvs);
   tex.magFilter = THREE.NearestFilter;
@@ -293,9 +319,52 @@ function vertexAO(world, x, y, z, face, corner) {
   return AO_LEVELS[3 - (side1 + side2 + diag)];
 }
 
+// 松明の光を BFS で広げる (MC 風のブロックライト)
+const light = new Uint8Array(WORLD_SIZE * WORLD_HEIGHT * WORLD_SIZE);
+const LIGHT_DIRS = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+function computeLight(world) {
+  light.fill(0);
+  let queue = [];
+  for (let i = 0; i < world.length; i++) {
+    if (world[i] === BLOCKS.TORCH.id) { light[i] = BLOCKS.TORCH.light; queue.push(i); }
+  }
+  while (queue.length) {
+    const next = [];
+    for (const i of queue) {
+      const lv = light[i] - 1;
+      if (lv <= 0) continue;
+      const x = i % WORLD_SIZE, y = Math.floor(i / (WORLD_SIZE * WORLD_SIZE)), z = Math.floor(i / WORLD_SIZE) % WORLD_SIZE;
+      for (const d of LIGHT_DIRS) {
+        const nx = x + d[0], ny = y + d[1], nz = z + d[2];
+        if (!inBounds(nx, ny, nz)) continue;
+        const j = idx(nx, ny, nz);
+        if (BLOCK_BY_ID[world[j]].solid) continue;
+        if (light[j] < lv) { light[j] = lv; next.push(j); }
+      }
+    }
+    queue = next;
+  }
+}
+function lightAt(x, y, z) { return inBounds(x, y, z) ? light[idx(x, y, z)] : 0; }
+
+function vertexLight(x, y, z, face, corner) {
+  const base = [x + face.dir[0], y + face.dir[1], z + face.dir[2]];
+  const s1 = [0, 0, 0], s2 = [0, 0, 0];
+  s1[face.u] = corner[face.u] ? 1 : -1;
+  s2[face.v] = corner[face.v] ? 1 : -1;
+  const l = Math.max(
+    lightAt(base[0], base[1], base[2]),
+    lightAt(base[0] + s1[0], base[1] + s1[1], base[2] + s1[2]),
+    lightAt(base[0] + s2[0], base[1] + s2[1], base[2] + s2[2]),
+    lightAt(base[0] + s1[0] + s2[0], base[1] + s1[1] + s2[1], base[2] + s1[2] + s2[2]),
+  );
+  return l / BLOCKS.TORCH.light;
+}
+
 function buildMesh(world) {
-  const opaque = { positions: [], normals: [], colors: [], uvs: [], indices: [] };
-  const water  = { positions: [], normals: [], colors: [], uvs: [], indices: [] };
+  const opaque = { positions: [], normals: [], colors: [], uvs: [], torch: [], indices: [] };
+  const water  = { positions: [], normals: [], colors: [], uvs: [], torch: [], indices: [] };
+  computeLight(world);
 
   for (let y = 0; y < WORLD_HEIGHT; y++) {
     for (let z = 0; z < WORLD_SIZE; z++) {
@@ -304,6 +373,21 @@ function buildMesh(world) {
         if (id === BLOCKS.AIR.id) continue;
         const block = BLOCK_BY_ID[id];
         const target = block.transparent ? water : opaque;
+
+        if (block.torch) {
+          for (const face of FACES) {
+            const idxBase = target.positions.length / 3;
+            for (const c of face.corners) {
+              target.positions.push(x + 0.4375 + c[0] * 0.125, y + c[1] * 0.6, z + 0.4375 + c[2] * 0.125);
+              target.normals.push(...face.normal);
+              target.colors.push(1, 1, 1);
+              target.uvs.push((id + c[face.u]) / ATLAS_COLS, (face.row + (1 - c[face.v])) / ATLAS_ROWS);
+              target.torch.push(1);
+            }
+            target.indices.push(idxBase, idxBase + 1, idxBase + 2, idxBase + 2, idxBase + 1, idxBase + 3);
+          }
+          continue;
+        }
 
         for (const face of FACES) {
           const nx = x + face.dir[0], ny = y + face.dir[1], nz = z + face.dir[2];
@@ -321,6 +405,7 @@ function buildMesh(world) {
             target.normals.push(...face.normal);
             target.colors.push(l, l, l);
             target.uvs.push((id + c[face.u]) / ATLAS_COLS, (face.row + (1 - c[face.v])) / ATLAS_ROWS);
+            target.torch.push(vertexLight(x, y, z, face, c));
           }
           target.indices.push(idxBase, idxBase + 1, idxBase + 2, idxBase + 2, idxBase + 1, idxBase + 3);
         }
@@ -336,6 +421,7 @@ function toGeometry(mesh) {
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(mesh.normals, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(mesh.colors, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(mesh.uvs, 2));
+  geo.setAttribute('torch', new THREE.Float32BufferAttribute(mesh.torch, 1));
   geo.setIndex(mesh.indices);
   geo.computeBoundingSphere();
   return geo;
@@ -400,7 +486,7 @@ function raycast(world, origin, direction, maxDist = 8) {
     if (inBounds(x, y, z)) {
       const id = getBlock(world, x, y, z);
       const b = BLOCK_BY_ID[id];
-      if (b && b.solid) {
+      if (b && (b.solid || b.torch)) {
         return { x, y, z, face };
       }
     }
@@ -517,14 +603,27 @@ const world = createWorld();
 generateTerrain(world, Math.floor(Math.random() * 10000));
 
 const atlas = makeAtlas();
-const material = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true });
-const waterMat = new THREE.MeshLambertMaterial({
+// 頂点属性 torch (0..1) を暖色の光として加算する
+function withTorchLight(mat) {
+  mat.onBeforeCompile = shader => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float torch;\nvarying float vTorch;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTorch = torch;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vTorch;')
+      .replace('#include <dithering_fragment>',
+        'gl_FragColor.rgb += vTorch * vTorch * vec3(1.0, 0.78, 0.45) * diffuseColor.rgb * 1.7;\n#include <dithering_fragment>');
+  };
+  return mat;
+}
+const material = withTorchLight(new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true }));
+const waterMat = withTorchLight(new THREE.MeshLambertMaterial({
   map: atlas,
   vertexColors: true,
   transparent: true,
   opacity: 0.7,
   depthWrite: false,
-});
+}));
 
 let opaqueMesh = null;
 let waterMesh = null;
@@ -713,7 +812,13 @@ document.getElementById('respawnBtn').addEventListener('click', respawn);
 // ---------------------------------------------------------------------------
 // 敵モブ (ゾンビ): 夜に湧いて追いかけてくる。日光で燃える
 // ---------------------------------------------------------------------------
-const ZOMBIE = { radius: 0.3, height: 1.9, speed: 2.4, hp: 20, damage: 3, reach: 1.7, max: 8 };
+const MOB_TYPES = {
+  zombie:  { radius: 0.3, height: 1.9, speed: 2.4, hp: 20, damage: 3, reach: 1.7, burns: true },
+  creeper: { radius: 0.3, height: 1.7, speed: 2.6, hp: 20, damage: 0, reach: 2.6, burns: false },
+};
+const MOB_MAX = 8;
+const EXPLOSION_RADIUS = 2.5;
+const explosions = [];
 const zombies = [];
 const zombieGroup = new THREE.Group();
 scene.add(zombieGroup);
@@ -770,6 +875,53 @@ function buildZombieMesh() {
   return { group: g, parts: { head, armL, armR, legL, legR }, mats: Object.values(mats) };
 }
 
+function makeMottledTexture(base, dark, face) {
+  const c = document.createElement('canvas');
+  c.width = 8; c.height = 8;
+  const ctx = c.getContext('2d');
+  const rnd = mulberry32(face ? 7 : 3);
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+    ctx.fillStyle = rnd() < 0.35 ? dark : base;
+    ctx.fillRect(x, y, 1, 1);
+  }
+  if (face) {
+    ctx.fillStyle = '#111';
+    ctx.fillRect(1, 2, 2, 2); ctx.fillRect(5, 2, 2, 2);
+    ctx.fillRect(3, 4, 2, 2); ctx.fillRect(2, 5, 1, 2); ctx.fillRect(5, 5, 1, 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const creeperSkin = makeMottledTexture('#4fa04a', '#2f6e2c', false);
+const creeperFace = makeMottledTexture('#4fa04a', '#2f6e2c', true);
+
+function buildCreeperMesh() {
+  const mats = {
+    skin: new THREE.MeshLambertMaterial({ map: creeperSkin }),
+    face: new THREE.MeshLambertMaterial({ map: creeperFace }),
+  };
+  const box = (w, h, d, mat, x, y, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    return m;
+  };
+  const g = new THREE.Group();
+  const sk = mats.skin;
+  const head = box(0.5, 0.5, 0.5, [sk, sk, sk, sk, mats.face, sk], 0, 1.45, 0);
+  const body = box(0.5, 0.75, 0.25, sk, 0, 0.825, 0);
+  const legs = [[-0.125, 0.25], [0.125, 0.25], [-0.125, -0.25], [0.125, -0.25]].map(([x, z]) => {
+    const l = box(0.25, 0.375, 0.25, sk, x, 0.375, z);
+    l.geometry.translate(0, -0.1875, 0);
+    return l;
+  });
+  g.add(head, body, ...legs);
+  return { group: g, parts: { head, legs }, mats: Object.values(mats) };
+}
+
 function skyExposed(x, y, z) {
   for (let yy = Math.floor(y) + 2; yy < WORLD_HEIGHT; yy++) {
     if (BLOCK_BY_ID[getBlock(world, Math.floor(x), yy, Math.floor(z))].solid) return false;
@@ -777,13 +929,16 @@ function skyExposed(x, y, z) {
   return true;
 }
 
-function spawnZombie(x, y, z) {
-  const { group, parts, mats } = buildZombieMesh();
+function spawnMob(kind, x, y, z) {
+  const type = MOB_TYPES[kind];
+  const { group, parts, mats } = kind === 'creeper' ? buildCreeperMesh() : buildZombieMesh();
   const zb = {
+    kind, type,
+    fuse: 0,
     pos: new THREE.Vector3(x, y, z),
     vel: new THREE.Vector3(),
     yaw: Math.random() * Math.PI * 2,
-    hp: ZOMBIE.hp,
+    hp: type.hp,
     onGround: false,
     attackCd: 0,
     hurtT: 0,
@@ -801,6 +956,7 @@ function spawnZombie(x, y, z) {
   zombies.push(zb);
   return zb;
 }
+const spawnZombie = (x, y, z) => spawnMob('zombie', x, y, z);
 
 function removeZombie(zb) {
   zombieGroup.remove(zb.group);
@@ -810,7 +966,7 @@ function removeZombie(zb) {
 }
 
 function trySpawnZombies() {
-  if (gameMode !== 'survival' || zombies.length >= ZOMBIE.max) return;
+  if (gameMode !== 'survival' || zombies.length >= MOB_MAX) return;
   for (let i = 0; i < 6; i++) {
     const ang = Math.random() * Math.PI * 2;
     const dist = 14 + Math.random() * 16;
@@ -822,7 +978,8 @@ function trySpawnZombies() {
     const ground = getBlock(world, x, y, z);
     if (ground !== BLOCKS.GRASS.id && ground !== BLOCKS.SAND.id && ground !== BLOCKS.DIRT.id) continue;
     if (getBlock(world, x, y + 1, z) !== BLOCKS.AIR.id || getBlock(world, x, y + 2, z) !== BLOCKS.AIR.id) continue;
-    spawnZombie(x + 0.5, y + 1, z + 0.5);
+    if (lightAt(x, y + 1, z) >= 8) continue; // 松明の明かりの中では湧かない
+    spawnMob(Math.random() < 0.3 ? 'creeper' : 'zombie', x + 0.5, y + 1, z + 0.5);
     return;
   }
 }
@@ -865,7 +1022,61 @@ const HURT_COLOR = new THREE.Color(0x7a1010);
 const FIRE_COLOR = new THREE.Color(0xff6a00);
 const NO_EMISSIVE = new THREE.Color(0x000000);
 
+function explode(center, radius) {
+  let changed = false;
+  const cx = Math.floor(center.x), cy = Math.floor(center.y), cz = Math.floor(center.z);
+  const r = Math.ceil(radius);
+  for (let x = cx - r; x <= cx + r; x++) {
+    for (let y = Math.max(1, cy - r); y <= cy + r; y++) {
+      for (let z = cz - r; z <= cz + r; z++) {
+        if (!inBounds(x, y, z)) continue;
+        const d = Math.hypot(x + 0.5 - center.x, y + 0.5 - center.y, z + 0.5 - center.z);
+        if (d <= radius && getBlock(world, x, y, z) !== BLOCKS.AIR.id) {
+          setBlock(world, x, y, z, BLOCKS.AIR.id);
+          changed = true;
+        }
+      }
+    }
+  }
+  if (changed) rebuildMesh();
+
+  const reach = radius * 2.2;
+  const pd = center.distanceTo(new THREE.Vector3(player.pos.x, player.pos.y + 0.9, player.pos.z));
+  if (pd < reach) damagePlayer(Math.round(12 * (1 - pd / reach)), center);
+  for (const o of zombies) {
+    if (!o.dead && o.pos.distanceTo(center) < radius * 2) {
+      o.hp -= 10; o.hurtT = 0.3;
+      if (o.hp <= 0) { o.dead = true; o.deathT = 0; }
+    }
+  }
+
+  const m = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 12, 10),
+    new THREE.MeshBasicMaterial({ color: 0xffe8b0, transparent: true, opacity: 0.9 })
+  );
+  m.position.copy(center);
+  scene.add(m);
+  explosions.push({ mesh: m, t: 0 });
+}
+
+function updateExplosions(dt) {
+  for (const e of [...explosions]) {
+    e.t += dt;
+    e.mesh.scale.setScalar(1 + e.t * 2);
+    e.mesh.material.opacity = Math.max(0, 0.9 - e.t * 2.2);
+    if (e.t > 0.45) {
+      scene.remove(e.mesh);
+      e.mesh.geometry.dispose();
+      e.mesh.material.dispose();
+      explosions.splice(explosions.indexOf(e), 1);
+    }
+  }
+}
+
+const FUSE_COLOR = new THREE.Color(0xffffff);
+
 function updateZombie(zb, dt, daylight) {
+  const type = zb.type;
   if (zb.dead) {
     zb.deathT += dt;
     zb.group.rotation.z = Math.min(Math.PI / 2, zb.deathT * 4);
@@ -874,8 +1085,8 @@ function updateZombie(zb, dt, daylight) {
     return;
   }
 
-  // 日光で燃える
-  zb.burning = daylight > 0.12 && skyExposed(zb.pos.x, zb.pos.y, zb.pos.z);
+  // ゾンビは日光で燃える
+  zb.burning = type.burns && daylight > 0.12 && skyExposed(zb.pos.x, zb.pos.y, zb.pos.z);
   if (zb.burning) {
     zb.hp -= 2 * dt;
     if (zb.hp <= 0) { zb.dead = true; zb.deathT = 0; return; }
@@ -884,6 +1095,7 @@ function updateZombie(zb, dt, daylight) {
   const toPlayer = new THREE.Vector2(player.pos.x - zb.pos.x, player.pos.z - zb.pos.z);
   const dist = toPlayer.length();
   if (dist > 60 || zb.pos.y < -10) { removeZombie(zb); return; }
+  if (!type.burns && daylight > 0.12 && dist > 20) { removeZombie(zb); return; }
 
   let moveX = 0, moveZ = 0;
   const hunting = gameMode === 'survival' && !player.dead && dist < 24;
@@ -900,7 +1112,20 @@ function updateZombie(zb, dt, daylight) {
     moveX = zb.wander.x; moveZ = zb.wander.y;
     if (moveX || moveZ) zb.yaw = Math.atan2(moveX, moveZ);
   }
-  const speed = hunting ? ZOMBIE.speed : ZOMBIE.speed * 0.5;
+
+  // クリーパー: 近づくと導火線に火がつき、1.5 秒で爆発
+  if (zb.kind === 'creeper') {
+    if (hunting && dist < type.reach) zb.fuse += dt;
+    else zb.fuse = Math.max(0, zb.fuse - dt * 2);
+    if (zb.fuse > 0) { moveX = 0; moveZ = 0; }
+    if (zb.fuse >= 1.5) {
+      explode(new THREE.Vector3(zb.pos.x, zb.pos.y + 0.8, zb.pos.z), EXPLOSION_RADIUS);
+      removeZombie(zb);
+      return;
+    }
+  }
+
+  const speed = hunting ? type.speed : type.speed * 0.5;
   const moving = (moveX !== 0 || moveZ !== 0);
 
   // 移動 + 衝突 (壁に当たったら自動ジャンプ)
@@ -913,7 +1138,7 @@ function updateZombie(zb, dt, daylight) {
   const tryMove = (axis, delta) => {
     const next = zb.pos.clone();
     next[axis] += delta;
-    if (!collides(world, next, ZOMBIE.radius, ZOMBIE.height)) {
+    if (!collides(world, next, type.radius, type.height)) {
       zb.pos[axis] = next[axis];
     } else if (axis === 'y') {
       if (delta < 0) zb.onGround = true;
@@ -930,33 +1155,44 @@ function updateZombie(zb, dt, daylight) {
   if (blocked && (zb.onGround || wasOnGround) && moving) zb.vel.y = JUMP_V * 0.8;
   zb.vel.x *= 0.9; zb.vel.z *= 0.9;
 
-  // 攻撃
+  // 近接攻撃 (ゾンビ)
   zb.attackCd -= dt;
-  if (hunting && dist < ZOMBIE.reach && Math.abs(player.pos.y - zb.pos.y) < 2 && zb.attackCd <= 0) {
+  if (type.damage > 0 && hunting && dist < type.reach && Math.abs(player.pos.y - zb.pos.y) < 2 && zb.attackCd <= 0) {
     zb.attackCd = 1.0;
     zb.swing = 0.35;
-    damagePlayer(ZOMBIE.damage, zb.pos);
+    damagePlayer(type.damage, zb.pos);
   }
 
   // 見た目
   zb.walkT += dt * (moving ? 8 : 0);
   const s = Math.sin(zb.walkT) * 0.6 * (moving ? 1 : 0);
-  zb.parts.legL.rotation.x = s;
-  zb.parts.legR.rotation.x = -s;
-  zb.swing = Math.max(0, zb.swing - dt);
-  const armLift = -Math.PI / 2 - zb.swing * 2;
-  zb.parts.armL.rotation.x = armLift + Math.sin(zb.walkT * 0.5) * 0.08;
-  zb.parts.armR.rotation.x = armLift - Math.sin(zb.walkT * 0.5) * 0.08;
+  if (zb.parts.armL) {
+    zb.parts.legL.rotation.x = s;
+    zb.parts.legR.rotation.x = -s;
+    zb.swing = Math.max(0, zb.swing - dt);
+    const armLift = -Math.PI / 2 - zb.swing * 2;
+    zb.parts.armL.rotation.x = armLift + Math.sin(zb.walkT * 0.5) * 0.08;
+    zb.parts.armR.rotation.x = armLift - Math.sin(zb.walkT * 0.5) * 0.08;
+  } else {
+    const [a, b, c, d] = zb.parts.legs;
+    a.rotation.x = d.rotation.x = s;
+    b.rotation.x = c.rotation.x = -s;
+  }
   zb.hurtT = Math.max(0, zb.hurtT - dt);
-  const emissive = zb.hurtT > 0 ? HURT_COLOR : zb.burning ? FIRE_COLOR : NO_EMISSIVE;
-  const flicker = zb.burning ? 0.5 + Math.random() * 0.5 : 1;
-  for (const m of zb.mats) { m.emissive.copy(emissive).multiplyScalar(flicker); }
+  let emissive = zb.hurtT > 0 ? HURT_COLOR : zb.burning ? FIRE_COLOR : NO_EMISSIVE;
+  let strength = zb.burning ? 0.5 + Math.random() * 0.5 : 1;
+  if (zb.fuse > 0) {
+    emissive = FUSE_COLOR;
+    strength = 0.35 + 0.35 * Math.sin(zb.fuse * 28);
+    zb.group.scale.setScalar(1 + zb.fuse * 0.25);
+  } else {
+    zb.group.scale.setScalar(1);
+  }
+  for (const m of zb.mats) { m.emissive.copy(emissive).multiplyScalar(strength); }
 
   zb.group.position.copy(zb.pos);
   zb.group.rotation.y = zb.yaw;
 }
-
-window.__kota = { player, zombies, spawnZombie };
 
 function updateMobs(dt, daylight) {
   spawnTimer -= dt;
@@ -965,6 +1201,7 @@ function updateMobs(dt, daylight) {
     if (daylight <= 0 && playing) trySpawnZombies();
   }
   for (const zb of [...zombies]) updateZombie(zb, dt, daylight);
+  updateExplosions(dt);
 }
 
 // ---------------------------------------------------------------------------
@@ -977,11 +1214,14 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyF') player.flying = !player.flying;
   if (e.code === 'KeyC') cycleGameMode();
   if (e.code === 'KeyT') cycleTool();
-  if (e.code === 'Escape' && dragLook && playing) stopGame();
+  if (e.code === 'Escape' && craftOpen) toggleCraft();
+  else if (e.code === 'Escape' && dragLook && playing) stopGame();
+  if (e.code === 'KeyE' && (playing || craftOpen)) toggleCraft();
   if (e.code >= 'Digit1' && e.code <= 'Digit9') {
     const i = parseInt(e.code.slice(5), 10) - 1;
     if (i < PLACEABLE.length) selectSlot(i);
   }
+  if (e.code === 'Digit0' && PLACEABLE.length >= 10) selectSlot(9);
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -1026,6 +1266,7 @@ function stopGame() {
   hint.hidden = true;
   document.body.classList.remove('touch');
   overlay.classList.remove('hidden');
+  saveGame(true);
 }
 
 document.getElementById('startBtn').addEventListener('click', startGame);
@@ -1035,7 +1276,7 @@ document.addEventListener('pointerlockchange', () => {
   if (pointerLocked) {
     dragLook = false;
     hint.hidden = true;
-  } else if (playing && !dragLook && !player.dead) {
+  } else if (playing && !dragLook && !player.dead && !craftOpen) {
     stopGame();
   }
 });
@@ -1086,7 +1327,12 @@ function placeBlock(hit) {
     p.z + PLAYER_RADIUS > pz && p.z - PLAYER_RADIUS < pz + 1;
   if (overlap) return;
 
-  setBlock(world, px, py, pz, PLACEABLE[selected].id);
+  const item = PLACEABLE[selected];
+  if (gameMode === 'survival' && !takeItem(item.id, 1)) {
+    toast(`${item.name}を持っていません (E でクラフト)`);
+    return;
+  }
+  setBlock(world, px, py, pz, item.id);
   rebuildMesh();
 }
 
@@ -1188,6 +1434,7 @@ holdButton('btnAttack', () => { attackHeld = true; }, () => { attackHeld = false
 holdButton('btnPlace', () => placeBlock(aimedBlock()));
 holdButton('btnFly', () => { player.flying = !player.flying; });
 holdButton('btnMenu', () => stopGame());
+holdButton('btnCraft', () => toggleCraft());
 
 window.addEventListener('mouseup', e => {
   if (e.button === 0) {
@@ -1215,9 +1462,10 @@ PLACEABLE.forEach((b, i) => {
   const slot = document.createElement('div');
   slot.className = 'slot';
   slot.innerHTML = `
-    <span class="num">${i + 1}</span>
+    <span class="num">${(i + 1) % 10}</span>
     <div class="swatch" style="background:#${b.color.toString(16).padStart(6,'0')}"></div>
     <span class="label">${b.name}</span>
+    <span class="count"></span>
   `;
   slot.addEventListener('click', () => selectSlot(i));
   hotbar.appendChild(slot);
@@ -1228,6 +1476,38 @@ function selectSlot(i) {
   [...hotbar.children].forEach((el, k) => el.classList.toggle('active', k === i));
 }
 selectSlot(0);
+
+// ---------------------------------------------------------------------------
+// インベントリ
+// ---------------------------------------------------------------------------
+const inventory = Object.create(null);
+const STARTER_KIT = [[BLOCKS.TORCH.id, 8], [BLOCKS.PLANK.id, 16], [BLOCKS.BRICK.id, 8], [BLOCKS.DIRT.id, 8]];
+
+function countOf(id) { return inventory[id] || 0; }
+function addItem(id, n) { inventory[id] = countOf(id) + n; renderHotbar(); }
+function takeItem(id, n) {
+  if (countOf(id) < n) return false;
+  inventory[id] -= n;
+  renderHotbar();
+  return true;
+}
+function giveStarterKit() { for (const [id, n] of STARTER_KIT) addItem(id, n); }
+function renderHotbar() {
+  [...hotbar.children].forEach((el, i) => {
+    const n = countOf(PLACEABLE[i].id);
+    el.querySelector('.count').textContent = gameMode === 'creative' ? '∞' : n;
+    el.classList.toggle('empty', gameMode === 'survival' && n === 0);
+  });
+}
+giveStarterKit();
+
+const toastEl = document.getElementById('toast');
+let toastT = 0;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.hidden = false;
+  toastT = 2.2;
+}
 
 // ツール表示
 const toolDisplay = document.createElement('div');
@@ -1268,6 +1548,7 @@ function cycleTool() {
 
 function cycleGameMode() {
   gameMode = gameMode === 'survival' ? 'creative' : 'survival';
+  renderHotbar();
 }
 
 toolDisplay.addEventListener('click', cycleTool);
@@ -1287,6 +1568,7 @@ const startFraction = parseFloat(new URLSearchParams(location.search).get('time'
 let gameTime = DAY_NIGHT_CYCLE * (Number.isFinite(startFraction) ? startFraction : 0.3); // 既定は朝
 const coords = document.getElementById('coords');
 const mineBar = document.getElementById('mineBar');
+let autosaveT = 0;
 const mineFill = document.getElementById('mineFill');
 
 function getMiningTime(blockId) {
@@ -1438,6 +1720,8 @@ function update(dt) {
         setBlock(world, t.x, t.y, t.z, BLOCKS.AIR.id);
         rebuildMesh();
         player.mining = false;
+        const drop = dropOf(targetBlock);
+        if (gameMode === 'survival' && drop) addItem(drop, 1);
       } else {
         mineProgress = elapsed / miningTime;
       }
@@ -1464,6 +1748,12 @@ function update(dt) {
   }
   updateHeldItem(dt, player.mining);
 
+  // トースト / オートセーブ
+  toastT -= dt;
+  if (toastT <= 0) toastEl.hidden = true;
+  autosaveT += dt;
+  if (autosaveT > 30 && playing && !player.dead) { autosaveT = 0; saveGame(true); }
+
   // UI更新
   const tool = TOOL_LIST[player.selectedTool];
   toolDisplay.textContent = `${tool.name}  攻撃${tool.damage} / 採掘×${tool.speed}  (T)`;
@@ -1478,6 +1768,151 @@ function update(dt) {
     `Time: ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}  ` +
     `撃破:${player.kills}  ${player.flying ? '[飛行]' : ''}`;
 }
+
+// ---------------------------------------------------------------------------
+// クラフト
+// ---------------------------------------------------------------------------
+const craftOverlay = document.getElementById('craftOverlay');
+const craftList = document.getElementById('craftList');
+let craftOpen = false;
+
+function canCraft(r) { return r.needs.every(([id, n]) => countOf(id) >= n); }
+
+function renderCraft() {
+  craftList.innerHTML = '';
+  for (const r of RECIPES) {
+    const row = document.createElement('div');
+    row.className = 'recipe' + (canCraft(r) ? '' : ' nope');
+    const need = r.needs.map(([id, n]) => `${BLOCK_BY_ID[id].name} ×${n}（所持 ${countOf(id)}）`).join(' ＋ ');
+    row.innerHTML = `<div class="rname">${r.name}</div><div class="rneed">${need}</div><button class="tbtn small">作る</button>`;
+    row.querySelector('button').addEventListener('click', () => craft(r));
+    craftList.appendChild(row);
+  }
+}
+
+function craft(r) {
+  if (!canCraft(r)) { toast('材料が足りません'); return; }
+  for (const [id, n] of r.needs) takeItem(id, n);
+  addItem(r.out, r.n);
+  toast(`${r.name} を作りました`);
+  renderCraft();
+}
+
+function toggleCraft() {
+  craftOpen = !craftOpen;
+  craftOverlay.classList.toggle('hidden', !craftOpen);
+  if (craftOpen) {
+    renderCraft();
+    if (pointerLocked) document.exitPointerLock();
+  } else if (playing && !isTouch && !dragLook) {
+    try { canvas.requestPointerLock(); } catch (_) {}
+  }
+}
+document.getElementById('craftClose').addEventListener('click', toggleCraft);
+document.getElementById('craftBtn').addEventListener('click', () => { if (!craftOpen) toggleCraft(); });
+
+// ---------------------------------------------------------------------------
+// セーブ / ロード (ブラウザの localStorage)
+// ---------------------------------------------------------------------------
+const SAVE_KEY = 'kotaCraft.save.v1';
+const continueBtn = document.getElementById('continueBtn');
+
+function bytesToB64(u8) {
+  let str = '';
+  for (let i = 0; i < u8.length; i += 8192) str += String.fromCharCode.apply(null, u8.subarray(i, i + 8192));
+  return btoa(str);
+}
+function b64ToBytes(b64) {
+  const str = atob(b64);
+  const u8 = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) u8[i] = str.charCodeAt(i);
+  return u8;
+}
+function hasSave() {
+  try { return !!localStorage.getItem(SAVE_KEY); } catch (_) { return false; }
+}
+function updateContinueBtn() { continueBtn.disabled = !hasSave(); }
+
+function saveGame(silent) {
+  try {
+    const data = {
+      v: 1,
+      world: bytesToB64(world),
+      pos: player.pos.toArray(),
+      yaw: player.yaw, pitch: player.pitch,
+      health: player.health,
+      inventory: { ...inventory },
+      gameTime, gameMode,
+      kills: player.kills,
+      tool: player.selectedTool,
+      spawn: spawnPoint.toArray(),
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    if (!silent) toast('セーブしました');
+    updateContinueBtn();
+    return true;
+  } catch (_) {
+    if (!silent) toast('セーブできませんでした');
+    return false;
+  }
+}
+
+function loadGame() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    const bytes = b64ToBytes(d.world);
+    if (bytes.length !== world.length) return false;
+    world.set(bytes);
+    player.pos.fromArray(d.pos);
+    player.yaw = d.yaw; player.pitch = d.pitch;
+    player.health = d.health;
+    player.vel.set(0, 0, 0);
+    player.kills = d.kills || 0;
+    player.selectedTool = d.tool || 0;
+    gameTime = d.gameTime;
+    gameMode = d.gameMode || 'survival';
+    if (d.spawn) spawnPoint.fromArray(d.spawn);
+    for (const k of Object.keys(inventory)) delete inventory[k];
+    Object.assign(inventory, d.inventory);
+    for (const zb of [...zombies]) removeZombie(zb);
+    rebuildMesh();
+    renderHotbar();
+    toast('ロードしました');
+    return true;
+  } catch (_) {
+    toast('ロードできませんでした');
+    return false;
+  }
+}
+
+function newWorld() {
+  world.fill(0);
+  generateTerrain(world, Math.floor(Math.random() * 10000));
+  const cx = Math.floor(WORLD_SIZE / 2), cz = Math.floor(WORLD_SIZE / 2);
+  for (let y = WORLD_HEIGHT - 1; y >= 0; y--) {
+    if (BLOCK_BY_ID[getBlock(world, cx, y, cz)].solid) { spawnPoint.set(cx + 0.5, y + 2, cz + 0.5); break; }
+  }
+  player.pos.copy(spawnPoint);
+  player.vel.set(0, 0, 0);
+  player.health = player.maxHealth;
+  player.kills = 0;
+  player.dead = false;
+  gameTime = DAY_NIGHT_CYCLE * 0.3;
+  for (const k of Object.keys(inventory)) delete inventory[k];
+  giveStarterKit();
+  for (const zb of [...zombies]) removeZombie(zb);
+  rebuildMesh();
+  toast('新しいワールドを生成しました');
+}
+
+continueBtn.addEventListener('click', () => { if (loadGame()) startGame(); });
+document.getElementById('saveBtn').addEventListener('click', () => saveGame(false));
+document.getElementById('newWorldBtn').addEventListener('click', () => { newWorld(); startGame(); });
+updateContinueBtn();
+
+window.__kota = { player, zombies, spawnZombie, spawnMob, inventory, saveGame, loadGame, addItem, world, setBlock, rebuildMesh, BLOCKS };
 
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.05);

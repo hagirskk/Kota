@@ -127,6 +127,25 @@ canvas { display: block; outline: none; }
   text-shadow: 1px 1px 0 #000;
 }
 
+.slot .count {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  font-size: 10px;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 1px 1px 0 #000, -1px -1px 0 #000;
+}
+
+.slot.empty .swatch { opacity: 0.35; }
+.slot.empty .count { color: #f66; }
+
+@media (max-width: 640px) {
+  .slot { width: 36px; height: 36px; }
+  .slot .swatch { width: 20px; height: 20px; }
+  .slot .label { display: none; }
+}
+
 .slot .label {
   margin-top: 1px;
   font-size: 8px;
@@ -228,12 +247,90 @@ body.touch #toolDisplay {
 #btnPlace { background: rgba(58, 109, 217, 0.85); }
 #btnJump { background: rgba(60, 140, 70, 0.85); }
 
-#btnMenu {
+#btnMenu, #btnCraft {
   position: fixed;
   top: calc(16px + env(safe-area-inset-top, 0px));
   left: 16px;
   width: 90px;
   z-index: 6;
+}
+
+#btnCraft { left: 116px; }
+
+#toast {
+  position: fixed;
+  top: calc(64px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.75);
+  color: #ffd36b;
+  padding: 8px 14px;
+  border: 2px solid #1a1a1a;
+  font-size: 13px;
+  z-index: 9;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+#craftOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 12;
+}
+
+#craftOverlay.hidden { display: none; }
+
+#craftOverlay .panel { width: min(460px, 100%); }
+#craftOverlay .panel h1 { font-size: 20px; }
+
+.recipe {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #4a4a4a;
+}
+
+.recipe .rname { font-weight: bold; color: #ffd36b; }
+.recipe .rneed { grid-column: 1; font-size: 11px; color: #ccc; }
+.recipe button { grid-row: 1 / span 2; width: 72px; height: 40px; cursor: pointer; }
+.recipe.nope .rneed { color: #f88; }
+.recipe.nope button { opacity: 0.45; }
+
+.btnrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.secondary {
+  flex: 1 1 45%;
+  padding: 10px;
+  background: #4a4a4a;
+  color: #fff;
+  border: 3px solid #1a1a1a;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 3px 0 #1a1a1a;
+}
+
+.secondary:hover { background: #5a5a5a; }
+.secondary:disabled { opacity: 0.4; cursor: default; }
+
+#craftClose { width: 100%; margin-top: 12px; }
+
+.panel .note {
+  color: #888;
+  font-size: 11px;
+  margin-top: 10px;
 }
 
 #hurt {

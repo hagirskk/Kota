@@ -11,7 +11,8 @@
   <div id="hurt"></div>
   <div id="crosshair">+</div>
   <div id="mineBar" hidden><div id="mineFill"></div></div>
-  <div id="hint" hidden>ドラッグで視点移動 / 長押しで採掘・攻撃 / Esc でメニュー</div>
+  <div id="hint" hidden>ドラッグで視点移動 / 長押しで採掘・攻撃 / E でクラフト / Esc でメニュー</div>
+  <div id="toast" hidden></div>
 
   <div id="hud">
     <div id="hearts"></div>
@@ -38,6 +39,16 @@
       <button class="tbtn small" id="btnFly">飛行</button>
     </div>
     <button class="tbtn small" id="btnMenu">メニュー</button>
+    <button class="tbtn small" id="btnCraft">クラフト</button>
+  </div>
+
+  <div id="craftOverlay" class="hidden">
+    <div class="panel">
+      <h1>クラフト</h1>
+      <p class="subtitle">持っている材料から作れます（E / クラフトボタンで開閉）</p>
+      <div id="craftList"></div>
+      <button id="craftClose" class="secondary">閉じる</button>
+    </div>
   </div>
 
   <div id="overlay">
@@ -52,15 +63,23 @@
         <li><b>マウス</b> : 視点操作</li>
         <li><b>左クリック</b> : ブロック破壊 / 攻撃</li>
         <li><b>右クリック</b> : ブロック設置</li>
-        <li><b>1〜6</b> : ブロック選択</li>
+        <li><b>1〜9, 0</b> : ブロック選択</li>
+        <li><b>E</b> : クラフト</li>
         <li><b>T</b> : 道具切替（ツルハシ / 剣）</li>
         <li><b>C</b> : クリエイティブ/サバイバル</li>
         <li><b>F</b> : 飛行モード</li>
         <li><b>Esc</b> : ポインター解除</li>
         <li><b>タブレット</b> : 左スティック移動 / 画面ドラッグ視点 / 右ボタン操作</li>
       </ul>
-      <p class="warn">夜になるとゾンビが湧いて襲ってきます。朝日を浴びると燃えて倒れます。高い所からの落下にも注意！</p>
+      <p class="warn">夜はゾンビとクリーパーが湧きます。松明の明かりの中には湧きません。クリーパーは近づくと爆発するので剣で早めに倒しましょう！</p>
       <button id="startBtn">クリックしてスタート</button>
+      <div class="btnrow">
+        <button id="continueBtn" class="secondary" disabled>つづきから</button>
+        <button id="saveBtn" class="secondary">セーブ</button>
+        <button id="newWorldBtn" class="secondary">新しいワールド</button>
+        <button id="craftBtn" class="secondary">クラフト</button>
+      </div>
+      <p class="note">セーブデータはこのブラウザ内に保存されます（30 秒ごとに自動セーブ）</p>
     </div>
   </div>
 
